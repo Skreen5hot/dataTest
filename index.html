@@ -275,19 +275,19 @@
     </div>
 
     <script src="prism.js"></script>
-
 <script>
 // --- 1. CONFIGURATION (Unchanged) ---
         const DB_NAME = 'pwa-secure-db';
         const DB_STORE_NAME = 'settings';
         const DB_TOKEN_KEY = 'github_token_data';
         
-        // --- 2. GLOBAL STATE (Unchanged) ---
+        // --- 2. GLOBAL STATE (Modified) ---
         let db; 
         let sessionAccessToken = null; 
         let sessionRepoPath = null; 
         let sessionService = null;
         let sessionHostUrl = null;
+        let sessionDefaultBranch = 'main'; // NEW: Add default branch state
         let currentPath = ''; 
         let sessionFileSha = null; 
 
@@ -405,7 +405,8 @@
             }
         }
         
-        // --- 6. CORE APP LOGIC & EVENT HANDLERS (Unchanged) ---
+        // --- 6. CORE APP LOGIC & EVENT HANDLERS (Modified) ---
+        
         document.getElementById('setup-service').onchange = (e) => {
             const wrapper = document.getElementById('gitlab-host-wrapper');
             if (e.target.value === 'gitlab') {
@@ -456,6 +457,13 @@
                 }
                 
                 serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
+                
+                // NEW: Get default branch *before* fetching content
+                if (sessionService === 'gitlab') {
+                    setStatus('Fetching project info...');
+                    sessionDefaultBranch = await api.gitlab.getDefaultBranch();
+                }
+
                 setStatus('Session unlocked!');
                 showView('loggedin');
                 
@@ -486,21 +494,25 @@
                  return;
             }
 
+            // MODIFIED: Sanitize Host URL
             let hostUrl = '';
             if (service === 'github') {
                 hostUrl = 'https://api.github.com';
             } else { // gitlab
                 hostUrl = document.getElementById('setup-gitlab-host').value;
                 if (!hostUrl) {
-                    // Default to gitlab.com if empty
                     hostUrl = 'https://gitlab.com'; 
                 }
                 if (!hostUrl.startsWith('http')) {
                     alert('Host URL must start with http:// or https://');
                     return;
                 }
+                // Sanitize the URL
                 if (hostUrl.endsWith('/')) {
-                    hostUrl = hostUrl.slice(0, -1);
+                    hostUrl = hostUrl.slice(0, -1); // Remove trailing /
+                }
+                if (hostUrl.endsWith('/api/v4')) {
+                    hostUrl = hostUrl.slice(0, -7); // Remove /api/v4
                 }
             }
 
@@ -519,6 +531,13 @@
                 sessionHostUrl = hostUrl; 
                 
                 serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
+                
+                // NEW: Get default branch *before* fetching content
+                if (sessionService === 'gitlab') {
+                    setStatus('Fetching project info...');
+                    sessionDefaultBranch = await api.gitlab.getDefaultBranch();
+                }
+
                 setStatus('Token encrypted and saved!');
                 showView('loggedin');
                 await fetchAndRenderContents('');
@@ -535,6 +554,7 @@
                 sessionRepoPath = null;
                 sessionService = null; 
                 sessionHostUrl = null;
+                sessionDefaultBranch = 'main'; // NEW: Reset branch
                 currentPath = '';
                 sessionFileSha = null;
                 setStatus('Logged out and token cleared.');
@@ -552,6 +572,8 @@
             github: {
                 async request(path, method = 'GET', body = null) {
                     const url = `${sessionHostUrl}/repos/${sessionRepoPath}/${path}`;
+                    // NEW: Add logging
+                    console.log(`GitHub Request: ${method} ${url}`);
                     const options = {
                         method: method,
                         headers: {
@@ -604,34 +626,27 @@
             },
 
             /**
-             * GitLab implementation (NOW IMPLEMENTED)
+             * GitLab implementation (MODIFIED)
              */
             gitlab: {
-                /** * Makes an authenticated fetch call to the GitLab API 
-                 * @param {string} endpoint - The API endpoint (e.g., /repository/tree)
-                 * @param {string} [method='GET']
-                 * @param {object} [body=null] - For PUT/POST
-                */
                 async request(endpoint, method = 'GET', body = null) {
-                    // GitLab requires the repo path to be URL-encoded
                     const encodedRepoPath = encodeURIComponent(sessionRepoPath);
                     const url = `${sessionHostUrl}/api/v4/projects/${encodedRepoPath}${endpoint}`;
                     
+                    // NEW: Add logging
+                    console.log(`GitLab Request: ${method} ${url}`);
+
                     const options = {
                         method: method,
                         headers: {
-                            // GitLab uses PRIVATE-TOKEN header
                             'PRIVATE-TOKEN': sessionAccessToken
                         }
                     };
-
                     if (body) {
                         options.body = JSON.stringify(body);
                         options.headers['Content-Type'] = 'application/json';
                     }
-
                     const response = await fetch(url, options);
-
                     if (!response.ok) {
                         if (response.status === 401) throw new Error('401 Unauthorized. Your token may be invalid or expired.');
                         if (response.status === 404) throw new Error('404 Not Found. Check your repository path or Host URL.');
@@ -640,47 +655,54 @@
                     return response.status === 204 ? null : response.json();
                 },
 
-                /** Fetches contents and normalizes them to a standard format */
+                // NEW: Function to get default branch
+                async getDefaultBranch() {
+                    try {
+                        // Makes a request to the base project endpoint
+                        const projectData = await this.request(''); // Empty endpoint string
+                        if (projectData && projectData.default_branch) {
+                            console.log(`Default branch is: ${projectData.default_branch}`);
+                            return projectData.default_branch;
+                        }
+                    } catch (e) {
+                        console.error("Could not fetch default branch:", e);
+                    }
+                    console.warn("Could not detect default branch, falling back to 'main'");
+                    return 'main'; // Fallback
+                },
+
+                // MODIFIED: Implemented getContents
                 async getContents(path) {
                     try {
-                        // First, try to get the path as a directory tree
                         const treeData = await this.request(`/repository/tree?path=${path}`);
-                        
-                        // If it returns a non-empty array, it's a directory
                         if (Array.isArray(treeData) && treeData.length > 0) {
                             return {
                                 type: 'dir',
                                 items: treeData.map(item => ({
                                     name: item.name,
-                                    type: item.type === 'tree' ? 'dir' : 'file', // 'tree' means directory
+                                    type: item.type === 'tree' ? 'dir' : 'file',
                                     path: item.path
                                 }))
                             };
                         } else {
-                            // If tree is empty OR it fails, it's probably a file.
-                            // GitLab's tree endpoint 404s if the path is a file, so we must try/catch.
-                            // We fall through to the 'catch' block.
-                            throw new Error('Not a directory, trying as file');
+                            throw new Error('Empty directory, or is a file');
                         }
                     } catch (e) {
-                        // This block runs if the /tree request fails (e.g., 404)
                         try {
-                            // GitLab requires file paths to be URL-encoded in this specific endpoint
                             const encodedFilePath = encodeURIComponent(path);
-                            // We must also specify a branch, so we'll assume 'main' for this PoC
-                            // A real app would need to fetch the default branch.
-                            const fileData = await this.request(`/repository/files/${encodedFilePath}?ref=main`);
+                            // MODIFIED: Use dynamic branch
+                            const fileData = await this.request(`/repository/files/${encodedFilePath}?ref=${sessionDefaultBranch}`);
 
                             if (fileData.encoding !== 'base64') throw new Error('Cannot display non-Base64 file');
                             
                             return {
                                 type: 'file',
-                                // We use last_commit_id as the 'sha' for updates
                                 sha: fileData.last_commit_id, 
                                 content: decodeBase64(fileData.content)
                             };
                         } catch (fileError) {
                             console.error('GitLab file fetch error:', fileError);
+                            // This is the error you were seeing
                             throw new Error('Could not fetch path as directory or file.');
                         }
                     }
@@ -688,15 +710,13 @@
                 
                 /** Commits a file change (STUBBED) */
                 async commitFile(path, newContent, sha, commitMessage) {
-                    // --- TODO: Implement GitLab commitFile logic ---
-                    // This is more complex than GitHub. You need to use the Commits API
-                    // or the Files API "update" endpoint.
-                    //
-                    // Using Files API (PUT request):
+                    // This is the next function to implement.
+                    // You will need to use the dynamic `sessionDefaultBranch`
+                    
                     // const encodedFilePath = encodeURIComponent(path);
                     // const endpoint = `/repository/files/${encodedFilePath}`;
                     // const body = {
-                    //    branch: 'main', // <-- Need to know the branch
+                    //    branch: sessionDefaultBranch,
                     //    content: encodeBase64(newContent),
                     //    commit_message: commitMessage
                     // };
@@ -855,6 +875,7 @@
         
         // --- 10. START THE APP ---
         window.onload = main;
-    </script>
+        </script>
+
 </body>
 </html>
