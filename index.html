@@ -477,7 +477,7 @@
                  alert('Repo path must be in "owner/repo" or "group/repo" format.');
                  return;
             }
-            if (!token.startsWith('ghp_') && !token.startsWith('github_pat_') && !token.startsWith('glpat_')) {
+            if (!token.startsWith('ghp_') && !token.startsWith('github_pat_') && !token.startsWith('glpat-')) {
                  alert('This does not look like a valid Personal Access Token.');
                  return;
             }
