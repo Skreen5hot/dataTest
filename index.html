@@ -405,8 +405,7 @@
             }
         }
         
-        // --- 6. CORE APP LOGIC & EVENT HANDLERS (Modified) ---
-        
+        // --- 6. CORE APP LOGIC & EVENT HANDLERS (Unchanged) ---
         document.getElementById('setup-service').onchange = (e) => {
             const wrapper = document.getElementById('gitlab-host-wrapper');
             if (e.target.value === 'gitlab') {
@@ -458,7 +457,6 @@
                 
                 serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
                 
-                // NEW: Get default branch *before* fetching content
                 if (sessionService === 'gitlab') {
                     setStatus('Fetching project info...');
                     sessionDefaultBranch = await api.gitlab.getDefaultBranch();
@@ -494,7 +492,6 @@
                  return;
             }
 
-            // MODIFIED: Sanitize Host URL
             let hostUrl = '';
             if (service === 'github') {
                 hostUrl = 'https://api.github.com';
@@ -532,7 +529,6 @@
                 
                 serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
                 
-                // NEW: Get default branch *before* fetching content
                 if (sessionService === 'gitlab') {
                     setStatus('Fetching project info...');
                     sessionDefaultBranch = await api.gitlab.getDefaultBranch();
@@ -554,7 +550,7 @@
                 sessionRepoPath = null;
                 sessionService = null; 
                 sessionHostUrl = null;
-                sessionDefaultBranch = 'main'; // NEW: Reset branch
+                sessionDefaultBranch = 'main'; 
                 currentPath = '';
                 sessionFileSha = null;
                 setStatus('Logged out and token cleared.');
@@ -572,7 +568,6 @@
             github: {
                 async request(path, method = 'GET', body = null) {
                     const url = `${sessionHostUrl}/repos/${sessionRepoPath}/${path}`;
-                    // NEW: Add logging
                     console.log(`GitHub Request: ${method} ${url}`);
                     const options = {
                         method: method,
@@ -629,17 +624,21 @@
              * GitLab implementation (MODIFIED)
              */
             gitlab: {
+                /** * Makes an authenticated fetch call to the GitLab API 
+                 * @param {string} endpoint - The API endpoint (e.g., /repository/tree)
+                 */
                 async request(endpoint, method = 'GET', body = null) {
                     const encodedRepoPath = encodeURIComponent(sessionRepoPath);
+                    // MODIFIED: Use the correct base URL structure
                     const url = `${sessionHostUrl}/api/v4/projects/${encodedRepoPath}${endpoint}`;
                     
-                    // NEW: Add logging
                     console.log(`GitLab Request: ${method} ${url}`);
 
                     const options = {
                         method: method,
                         headers: {
-                            'PRIVATE-TOKEN': sessionAccessToken
+                            // MODIFIED: Use Authorization: Bearer per your POC
+                            'Authorization': `Bearer ${sessionAccessToken}`
                         }
                     };
                     if (body) {
@@ -648,18 +647,19 @@
                     }
                     const response = await fetch(url, options);
                     if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error("GitLab API Error Response:", errorText);
                         if (response.status === 401) throw new Error('401 Unauthorized. Your token may be invalid or expired.');
                         if (response.status === 404) throw new Error('404 Not Found. Check your repository path or Host URL.');
-                        throw new Error(`GitLab API Error: ${response.status}`);
+                        throw new Error(`GitLab API Error: ${response.status} - ${errorText}`);
                     }
                     return response.status === 204 ? null : response.json();
                 },
 
-                // NEW: Function to get default branch
+                /** Fetches the default branch name */
                 async getDefaultBranch() {
                     try {
-                        // Makes a request to the base project endpoint
-                        const projectData = await this.request(''); // Empty endpoint string
+                        const projectData = await this.request(''); // Base project endpoint
                         if (projectData && projectData.default_branch) {
                             console.log(`Default branch is: ${projectData.default_branch}`);
                             return projectData.default_branch;
@@ -671,7 +671,7 @@
                     return 'main'; // Fallback
                 },
 
-                // MODIFIED: Implemented getContents
+                /** Fetches contents (Unchanged from last time) */
                 async getContents(path) {
                     try {
                         const treeData = await this.request(`/repository/tree?path=${path}`);
@@ -690,7 +690,6 @@
                     } catch (e) {
                         try {
                             const encodedFilePath = encodeURIComponent(path);
-                            // MODIFIED: Use dynamic branch
                             const fileData = await this.request(`/repository/files/${encodedFilePath}?ref=${sessionDefaultBranch}`);
 
                             if (fileData.encoding !== 'base64') throw new Error('Cannot display non-Base64 file');
@@ -702,28 +701,30 @@
                             };
                         } catch (fileError) {
                             console.error('GitLab file fetch error:', fileError);
-                            // This is the error you were seeing
                             throw new Error('Could not fetch path as directory or file.');
                         }
                     }
                 },
                 
-                /** Commits a file change (STUBBED) */
+                /** Commits a file change (MODIFIED: Now fully implemented) */
                 async commitFile(path, newContent, sha, commitMessage) {
-                    // This is the next function to implement.
-                    // You will need to use the dynamic `sessionDefaultBranch`
+                    // Use the /repository/commits endpoint as seen in your POC
+                    const payload = {
+                        branch: sessionDefaultBranch,
+                        commit_message: commitMessage,
+                        actions: [
+                            {
+                                // We only support editing, so we always use 'update'
+                                action: "update", 
+                                file_path: path,
+                                content: encodeBase64(newContent),
+                                encoding: "base64"
+                            }
+                        ]
+                    };
                     
-                    // const encodedFilePath = encodeURIComponent(path);
-                    // const endpoint = `/repository/files/${encodedFilePath}`;
-                    // const body = {
-                    //    branch: sessionDefaultBranch,
-                    //    content: encodeBase64(newContent),
-                    //    commit_message: commitMessage
-                    // };
-                    // const data = await this.request(endpoint, 'PUT', body);
-                    // return data.last_commit_id;
-                    
-                    throw new Error('GitLab API "commitFile" function not implemented.');
+                    const data = await this.request('/repository/commits', 'POST', payload);
+                    return data.id; // Return the new commit ID (GitLab's 'sha')
                 }
             }
         };
@@ -875,7 +876,7 @@
         
         // --- 10. START THE APP ---
         window.onload = main;
-        </script>
+</script>
 
 </body>
 </html>
