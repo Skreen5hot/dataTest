@@ -801,18 +801,46 @@
                 fileExplorerEl.appendChild(li);
             }
         }
+/** Renders the content of a single file (MODIFIED with Logging) */
         function renderFile(decodedContent, sha) {
+            console.log("renderFile called for path:", currentPath); // Log path
             fileExplorerEl.classList.add('hidden');
             fileViewWrapperEl.classList.remove('hidden');
             fileEditDisplayEl.classList.add('hidden');
             fileDisplayEl.classList.remove('hidden');
+
             sessionFileSha = sha; 
+
+            // --- NEW HIGHLIGHTING LOGIC ---
+            // 1. Get the language class
             const langClass = getLanguageClass(currentPath);
+            console.log("Detected language class:", langClass); // Log language class
+
+            // 2. Set the content in the <code> tag
             fileContentEl.textContent = decodedContent;
+
+            // 3. Set the class on the <pre> wrapper
             fileContentWrapperEl.className = langClass;
+
+            // 4. Tell Prism to highlight the element
+            // (Window.Prism is the object from prism.js)
+            console.log("Checking window.Prism:", window.Prism); // Log Prism object
             if (window.Prism) {
-                window.Prism.highlightElement(fileContentEl);
+                console.log("Available Prism languages:", Object.keys(window.Prism.languages)); // Log available languages
+                try {
+                     // IMPORTANT: Clear any previous highlighting first
+                     fileContentEl.innerHTML = fileContentEl.textContent; 
+                     
+                     window.Prism.highlightElement(fileContentEl);
+                     console.log("Prism.highlightElement called successfully."); // Log success
+                } catch (e) {
+                    console.error("Error calling Prism.highlightElement:", e); // Log errors
+                }
+            } else {
+                 console.warn("window.Prism not found. Highlighting skipped."); // Warn if Prism isn't loaded
             }
+            // --- END NEW LOGIC ---
+
             btnEditEl.classList.remove('hidden');
         }
         function decodeBase64(base64String) {
