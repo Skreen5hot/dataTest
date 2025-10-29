@@ -742,8 +742,11 @@
         };
 
         // --- 8. CORE BROWSER LOGIC (Unchanged) ---
-        function getLanguageClass(path) {
-            const extension = path.split('.').pop();
+function getLanguageClass(path) {
+            // Trim whitespace from the path first
+            const trimmedPath = (path || '').trim(); // Add check for null/undefined path
+            const extension = trimmedPath.split('.').pop();
+            
             switch (extension) {
                 case 'ttl':
                     return 'language-turtle';
@@ -762,7 +765,7 @@
                     return 'language-none'; 
             }
         }
-        async function fetchAndRenderContents(path) {
+                async function fetchAndRenderContents(path) {
             setStatus('Fetching repository contents...');
             fileExplorerEl.innerHTML = '<li>Loading...</li>';
             fileViewWrapperEl.classList.add('hidden'); 
