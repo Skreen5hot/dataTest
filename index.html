@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure PWA Auth PoC</title>
+    <title>Secure PWA (BYOT) PoC</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
         div { margin-bottom: 15px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }
@@ -18,13 +18,24 @@
 </head>
 <body>
 
-    <h1>Secure Serverless PWA PoC</h1>
+    <h1>Secure PWA PoC (User Token)</h1>
     <p>Status: <b id="status">Initializing...</b></p>
 
-    <div id="view-connect">
-        <h3>Connect to GitHub</h3>
-        <p>This will start the GitHub OAuth flow to get an access token. This token will then be encrypted with a password you create and stored in your browser's IndexedDB.</p>
-        <button id="btn-connect">Connect to GitHub</button>
+    <div id="view-setup">
+        <h3>Setup Connection</h3>
+        <p>
+            Please generate a <a href="https://github.com/settings/tokens?type=beta" target="_blank">Fine-grained Personal Access Token</a>
+            on GitHub. Grant it **"Read & Write"** access to **"Contents"** for your single repository.
+        </p>
+        <form id="form-setup">
+            <label for="setup-token">GitHub Personal Access Token (ghp_...)</label>
+            <input type="text" id="setup-token" placeholder="ghp_..." required>
+            
+            <label for="setup-password">Create a Master Password (to encrypt this token)</label>
+            <input type="password" id="setup-password" placeholder="Your new master password" required>
+            
+            <button type="submit">Encrypt and Save</button>
+        </form>
     </div>
 
     <div id="view-unlock" class="hidden">
@@ -43,23 +54,12 @@
         <button id="btn-logout" class="danger">Log Out & Clear Token</button>
     </div>
 
-    <div id="view-set-password" class="hidden">
-        <h3>Create Master Password</h3>
-        <p>Success! Your GitHub token has been fetched. Please create a strong master password to encrypt and save it. <strong>If you forget this, you must log out and reconnect.</strong></p>
-        <form id="form-set-password">
-            <input type="password" id="set-password" placeholder="Create a strong password" required>
-            <button type="submit">Save & Encrypt</button>
-        </form>
-    </div>
-
     <h3>API Output:</h3>
     <pre id="output">No data fetched yet.</pre>
 
 
     <script>
         // --- 1. CONFIGURATION ---
-        const GITHUB_CLIENT_ID = 'YOUR_CLIENT_ID_HERE'; // ⚠️ PASTE YOUR CLIENT ID HERE
-        const GITHUB_CALLBACK_URL = window.location.origin + window.location.pathname;
         const DB_NAME = 'pwa-secure-db';
         const DB_STORE_NAME = 'settings';
         const DB_TOKEN_KEY = 'github_token_data';
@@ -72,10 +72,9 @@
         const statusEl = document.getElementById('status');
         const outputEl = document.getElementById('output');
         const views = {
-            connect: document.getElementById('view-connect'),
+            setup: document.getElementById('view-setup'),
             unlock: document.getElementById('view-unlock'),
-            loggedin: document.getElementById('view-loggedin'),
-            setPassword: document.getElementById('view-set-password')
+            loggedin: document.getElementById('view-loggedin')
         };
         
         function showView(viewName) {
@@ -93,7 +92,6 @@
         function initDB() {
             return new Promise((resolve, reject) => {
                 const request = window.indexedDB.open(DB_NAME, 1);
-                
                 request.onerror = (e) => reject('IndexedDB error: ' + request.error);
                 request.onsuccess = (e) => {
                     db = e.target.result;
@@ -138,7 +136,7 @@
             });
         }
 
-        // --- 5. NATIVE CRYPTO HELPERS ---
+        // --- 5. NATIVE CRYPTO HELPERS (Identical to before) ---
 
         /** Derives a 256-bit AES-GCM key from a password and salt using PBKDF2 */
         async function deriveKey(password, salt) {
@@ -189,133 +187,21 @@
             }
         }
         
-        // --- 6. OAUTH PKCE FLOW ---
-
-        /** Generates a PKCE verifier and challenge */
-        async function createPkceChallenge() {
-            function base64url(buffer) {
-                let str = btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)));
-                return str.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-            }
-            async function sha256(plain) {
-                const encoder = new TextEncoder();
-                const data = encoder.encode(plain);
-                return window.crypto.subtle.digest('SHA-256', data);
-            }
-            const verifier = base64url(window.crypto.getRandomValues(new Uint8Array(32)));
-            const hashed = await sha256(verifier);
-            const challenge = base64url(hashed);
-            return { verifier, challenge };
-        }
-
-        /** Step 1: Redirect user to GitHub for auth */
-        async function redirectToGitHub() {
-            if (!GITHUB_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) {
-                setStatus('Redirecting to GitHub...');
-                const { verifier, challenge } = await createPkceChallenge();
-                sessionStorage.setItem('pkce_verifier', verifier); // Store verifier to survive redirect
-                
-                const params = new URLSearchParams({
-                    client_id: GITHUB_CLIENT_ID,
-                    redirect_uri: GITHUB_CALLBACK_URL,
-                    scope: 'repo', // Request full repo access
-                    state: 'pwa-auth-poc-state',
-                    code_challenge: challenge,
-                    code_challenge_method: 'S256'
-                });
-                
-                window.location.href = `https://github.com/login/oauth/authorize?${params.toString()}`;
-            } else {
-                alert('ERROR: Please set your GITHUB_CLIENT_ID in the script!');
-            }
-        }
-        
-        /** Step 3: Exchange the code for a token (called from handleAuthCallback) */
-        async function exchangeCodeForToken(code, verifier) {
-            setStatus('Exchanging code for token...');
-            
-            const response = await fetch('https://github.com/login/oauth/access_token', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({
-                    client_id: GITHUB_CLIENT_ID,
-                    code: code,
-                    redirect_uri: GITHUB_CALLBACK_URL,
-                    code_verifier: verifier
-                })
-            });
-
-            if (!response.ok) throw new Error('Failed to exchange token');
-            const data = await response.json();
-            if (data.error) throw new Error(data.error_description);
-            return data.access_token;
-        }
-
-        /** Step 2: Handle the redirect back from GitHub */
-        async function handleAuthCallback() {
-            const params = new URLSearchParams(window.location.search);
-            const code = params.get('code');
-            
-            if (code) {
-                setStatus('Auth successful, processing...');
-                window.history.replaceState({}, document.title, window.location.pathname); // Clean URL
-                const verifier = sessionStorage.getItem('pkce_verifier');
-                if (!verifier) throw new Error('PKCE Verifier not found');
-                
-                sessionStorage.removeItem('pkce_verifier');
-
-                try {
-                    const plainTextToken = await exchangeCodeForToken(code, verifier);
-                    setStatus('Please create a master password.');
-                    showView('setPassword');
-                    
-                    // Add submit handler for the password form
-                    document.getElementById('form-set-password').onsubmit = async (e) => {
-                        e.preventDefault();
-                        setStatus('Encrypting and saving token...');
-                        const password = document.getElementById('set-password').value;
-                        if (!password) {
-                            alert('Password cannot be empty.');
-                            return;
-                        }
-                        
-                        const encryptedData = await encryptToken(plainTextToken, password);
-                        await dbPut(encryptedData);
-                        sessionAccessToken = plainTextToken;
-                        
-                        setStatus('Logged in and token saved!');
-                        showView('loggedin');
-                    };
-
-                } catch (err) {
-                    setStatus('Error during auth: ' + err.message);
-                    outputEl.textContent = err;
-                    showView('connect');
-                }
-                return true; // We handled a callback
-            }
-            return false; // Not a callback
-        }
-
-        // --- 7. CORE APP LOGIC & EVENT HANDLERS ---
+        // --- 6. CORE APP LOGIC & EVENT HANDLERS ---
         
         /** Called on page load */
         async function main() {
             try {
                 await initDB();
                 setStatus('Database initialized.');
-
-                const isCallback = await handleAuthCallback();
-                if (isCallback) return; // Stop, callback handler will finish
-
                 const encryptedData = await dbGet(DB_TOKEN_KEY);
                 
                 if (encryptedData) {
                     setStatus('Encrypted token found.');
                     showView('unlock');
                 } else {
-                    setStatus('Ready to connect.');
-                    showView('connect');
+                    setStatus('Ready for setup.');
+                    showView('setup');
                 }
 
             } catch (err) {
@@ -349,17 +235,43 @@
             }
         };
 
-        /** Handle "Connect" button click */
-        document.getElementById('btn-connect').onclick = redirectToGitHub;
+        /** Handle the initial SETUP form */
+        document.getElementById('form-setup').onsubmit = async (e) => {
+            e.preventDefault();
+            const token = document.getElementById('setup-token').value;
+            const password = document.getElementById('setup-password').value;
+
+            if (!token || !password) {
+                alert('Please provide both a token and a password.');
+                return;
+            }
+            if (!token.startsWith('ghp_')) {
+                 alert('This does not look like a valid Personal Access Token.');
+                 return;
+            }
+
+            setStatus('Encrypting and saving token...');
+            try {
+                const encryptedData = await encryptToken(token, password);
+                await dbPut(encryptedData);
+                
+                sessionAccessToken = token; // Set for current session
+                setStatus('Token encrypted and saved!');
+                showView('loggedin');
+
+            } catch (err) {
+                setStatus('Error saving token: ' + err.message);
+            }
+        };
 
         /** Handle "Log Out" button click */
         document.getElementById('btn-logout').onclick = async () => {
-            if (confirm('This will log you out and permanently delete your encrypted token. You will need to reconnect to GitHub to use the app again. Continue?')) {
+            if (confirm('This will log you out and permanently delete your encrypted token. You will need to set it up again. Continue?')) {
                 setStatus('Logging out...');
                 await dbDelete(DB_TOKEN_KEY);
                 sessionAccessToken = null;
                 setStatus('Logged out and token cleared.');
-                showView('connect');
+                showView('setup');
                 outputEl.textContent = 'Logged out.';
             }
         };
@@ -383,9 +295,8 @@
                 });
                 
                 if (!response.ok) {
-                    // Handle 401 Bad Credentials
                     if (response.status === 401) {
-                        outputEl.textContent = 'API Error: 401 Bad Credentials. Your token may have expired or been revoked. Please log out and reconnect.';
+                        outputEl.textContent = 'API Error: 401 Bad Credentials. Your token may be invalid or expired. Please log out and set up a new token.';
                         setStatus('API Error: Bad credentials');
                         return;
                     }
@@ -402,7 +313,7 @@
             }
         };
 
-        // --- 8. START THE APP ---
+        // --- 7. START THE APP ---
         window.onload = main;
         
     </script>
