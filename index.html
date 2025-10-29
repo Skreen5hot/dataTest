@@ -8,98 +8,273 @@
     <link href="prism.css" rel="stylesheet" />
 
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
-        div { margin-bottom: 15px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }
-        /* Added select style */
-        input[type="password"], input[type="text"], select { width: 98%; padding: 10px; font-size: 16px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; }
-        button { padding: 12px 18px; font-size: 16px; cursor: pointer; background: #0366d6; color: white; border: none; border-radius: 6px; margin-right: 5px; }
+        /* --- 1. Global & Reset --- */
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            background-color: #f6f8fa;
+            color: #24292e;
+            display: flex; /* Use flex to center auth forms */
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .hidden {
+            display: none !important; /* Use !important to override flex/grid */
+        }
+        button {
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            background: #0366d6;
+            color: white;
+            border: 1px solid rgba(27,31,35,.15);
+            border-radius: 6px;
+            margin-right: 5px;
+            transition: background-color 0.2s;
+        }
         button:hover { background: #0056b3; }
         button.danger { background: #d73a49; }
         button.danger:hover { background: #b02a37; }
-        button.secondary { background: #6a737d; }
+        button.secondary { background: #f6f8fa; color: #24292e; border: 1px solid rgba(27,31,35,.15); }
+        button.secondary:hover { background: #e1e4e8; }
         button.success { background: #28a745; }
         button.success:hover { background: #218838; }
+
+        /* --- 2. Auth Forms (Setup/Unlock) --- */
+        /* These are full-screen overlays */
+        .auth-view {
+            width: 100%;
+            max-width: 440px;
+            padding: 20px;
+        }
+        .auth-view div {
+            background: #fff;
+            border: 1px solid #d1d5da;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .auth-view h3 { margin-top: 0; }
+        .auth-view label { font-weight: 600; display: block; margin-bottom: 5px; }
+        .auth-view input[type="password"],
+        .auth-view input[type="text"],
+        .auth-view select {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            margin-bottom: 15px;
+            border: 1px solid #d1d5da;
+            border-radius: 6px;
+        }
+
+        /* --- 3. Main App Layout --- */
+        #app-wrapper {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100vh;
+            max-width: none;
+            background: #fff;
+        }
+        #app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            border-bottom: 1px solid #d1d5da;
+            background: #f6f8fa;
+        }
+        #app-header h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        #app-header #status {
+            font-size: 14px;
+            color: #586069;
+        }
         
-        /* MODIFIED: Default <pre> style is now for Prism */
+        #app-main {
+            display: flex;
+            flex-grow: 1; /* Take up remaining height */
+            overflow: hidden; /* Prevent scrolling at the main level */
+        }
+
+        /* --- 4. Sidebar (File Explorer) --- */
+        #app-sidebar {
+            width: 300px;
+            flex-shrink: 0; /* Don't shrink */
+            border-right: 1px solid #d1d5da;
+            padding: 15px;
+            overflow-y: auto; /* Allow sidebar to scroll */
+        }
+        #app-sidebar h4 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #586069;
+        }
+        #file-explorer {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        #file-explorer li {
+            font-size: 15px;
+            padding: 8px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #file-explorer li:hover { background: #f6f8fa; }
+        #file-explorer li a { text-decoration: none; color: #0366d6; }
+
+        /* --- 5. Content Area (File Viewer/Editor) --- */
+        #app-content {
+            flex-grow: 1; /* Take up remaining space */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* Prevent scrolling, inner <pre> will scroll */
+        }
+        #file-view-wrapper {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow: hidden;
+            border: none; /* Override default */
+            margin: 0;
+        }
+        #file-display, #file-edit-display {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #file-display button { margin-bottom: 15px; flex-shrink: 0; }
+        
         pre[class*="language-"] {
             margin: 0;
             padding: 1.5em;
             font-size: 14px;
             line-height: 1.5;
-            max-height: 400px;
-            overflow-y: auto;
+            flex-grow: 1; /* Make <pre> fill remaining space */
+            overflow: auto; /* Allow <pre> to scroll */
+            border: 1px solid #d1d5da;
             border-radius: 6px;
         }
+        #file-editor {
+            width: 100%;
+            flex-grow: 1; /* Make <textarea> fill space */
+            font-family: monospace;
+            font-size: 14px;
+            padding: 10px;
+            border: 1px solid #d1d5da;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
 
-        .hidden { display: none; }
-        #file-explorer { list-style: none; padding: 0; }
-        #file-explorer li { font-size: 18px; padding: 8px; border-radius: 5px; cursor: pointer; }
-        #file-explorer li:hover { background: #f6f8fa; }
-        #file-explorer li a { text-decoration: none; color: #0366d6; }
-        #file-editor { width: 95%; height: 400px; font-family: monospace; font-size: 14px; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
+        /* --- 6. Responsive (Mobile) --- */
+        @media (max-width: 768px) {
+            body {
+                /* On mobile, let auth forms be normal */
+                display: block;
+            }
+            #app-main {
+                flex-direction: column;
+            }
+            #app-sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid #d1d5da;
+                height: 100%; /* Take full height */
+                flex-shrink: 1;
+            }
+            #app-content {
+                height: 100%;
+            }
+            /* JS will toggle this class to show/hide views */
+            .mobile-content-view #app-sidebar {
+                display: none;
+            }
+            .mobile-content-view #app-content {
+                display: flex;
+            }
+            /* By default, hide content view on mobile */
+            #app-content {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body>
 
-    <h1>Secure PWA PoC (GitHub / GitLab)</h1>
-    <p>Status: <b id="status">Initializing...</b></p>
-
-    <div id="view-setup">
-        <h3>Setup Connection</h3>
-        <p>
-            Please generate a Personal Access Token from your service.
-            Grant it **"Read & Write"** access to **"Contents"** / **"Repository"** for your single repository.
-        </p>
-        <form id="form-setup">
-            <label for="setup-service">Git Service</label>
-            <select id="setup-service">
-                <option value="github">GitHub</option>
-                <option value="gitlab">GitLab</option>
-            </select>
-            <label for="setup-repo">Repository Path (e.g., owner/repo)</label>
-            <input type="text" id="setup-repo" placeholder="your-username/your-repo-name" required>
-            <label for="setup-token">Personal Access Token</label>
-            <input type="text" id="setup-token" placeholder="github_pat_... or glpat_..." required>
-            <label for="setup-password">Create a Master Password</label>
-            <input type="password" id="setup-password" placeholder="Your new master password" required>
-            <button type="submit">Encrypt and Save</button>
-        </form>
-    </div>
-
-    <div id="view-unlock" class="hidden">
-        <h3>Unlock Session</h3>
-        <p>Welcome back! Please enter your master password to decrypt your connection.</p>
-        <form id="form-unlock">
-            <input type="password" id="unlock-password" placeholder="Your master password" required>
-            <button type="submit">Unlock</button>
-        </form>
-    </div>
-
-    <div id="view-loggedin" class="hidden">
-        <h3>Session Unlocked (<span id="service-display"></span>)</h3>
-        <p>Session token is loaded in memory.</p>
-        <button id="btn-logout" class="danger">Log Out & Clear Token</button>
-
-        <div id="explorer-view">
-            <h3>Repository Browser</h3>
-            <button id="btn-back" class="secondary">Up One Level</button>
-            <h4 style="margin-bottom: 5px;">Current Path: <code id="current-path">/</code></h4>
-            
-            <ul id="file-explorer"></ul>
-            
-            <div id="file-view-wrapper" class="hidden">
-                <div id="file-display">
-                    <button id="btn-edit" class="secondary">Edit File</button>
-                    
-                    <pre id="file-content-wrapper"><code id="file-content"></code></pre>
-                </div>
-                <div id="file-edit-display" class="hidden">
-                    <textarea id="file-editor"></textarea>
-                    <button id="btn-commit" class="success">Save (Commit)</button>
-                    <button id="btn-cancel-edit" class="secondary">Cancel</button>
-                </div>
-            </div>
+    <div id="view-setup" class="auth-view">
+        <div>
+            <h3>Setup Connection</h3>
+            <p>Please generate a Personal Access Token with read/write access to your repository's contents.</p>
+            <form id="form-setup">
+                <label for="setup-service">Git Service</label>
+                <select id="setup-service">
+                    <option value="github">GitHub</option>
+                    <option value="gitlab">GitLab</option>
+                </select>
+                <label for="setup-repo">Repository Path (e.g., owner/repo)</label>
+                <input type="text" id="setup-repo" placeholder="your-username/your-repo-name" required>
+                <label for="setup-token">Personal Access Token</label>
+                <input type="text" id="setup-token" placeholder="github_pat_... or glpat_..." required>
+                <label for="setup-password">Create a Master Password</label>
+                <input type="password" id="setup-password" placeholder="Your new master password" required>
+                <button type="submit">Encrypt and Save</button>
+            </form>
         </div>
+    </div>
+
+    <div id="view-unlock" class="auth-view hidden">
+        <div>
+            <h3>Unlock Session</h3>
+            <p>Welcome back! Enter your password to decrypt your connection.</p>
+            <form id="form-unlock">
+                <input type="password" id="unlock-password" placeholder="Your master password" required>
+                <button type="submit">Unlock</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="app-wrapper" class="hidden">
+        
+        <header id="app-header">
+            <h3><span id="service-display"></span> Repo</h3>
+            <span id="status">Initializing...</span>
+            <button id="btn-logout" class="danger">Log Out</button>
+        </header>
+
+        <main id="app-main">
+            
+            <aside id="app-sidebar">
+                <button id="btn-back" class="secondary" style="width: 100%; margin-bottom: 10px;">Up One Level</button>
+                <h4>Current Path: <code id="current-path">/</code></h4>
+                <ul id="file-explorer"></ul>
+            </aside>
+
+            <section id="app-content">
+                <div id="file-view-wrapper">
+                    <div id="file-display">
+                        <button id="btn-edit" class="secondary">Edit File</button>
+                        <pre id="file-content-wrapper"><code id="file-content"></code></pre>
+                    </div>
+                    <div id="file-edit-display" class="hidden">
+                        <textarea id="file-editor"></textarea>
+                        <div> <button id="btn-commit" class="success">Save (Commit)</button>
+                            <button id="btn-cancel-edit" class="secondary">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+        </main>
     </div>
 
     <script src="prism.js"></script>
@@ -114,19 +289,15 @@
         let db; 
         let sessionAccessToken = null; 
         let sessionRepoPath = null; 
-        let sessionService = null; // 'github' or 'gitlab'
+        let sessionService = null; 
         let currentPath = ''; 
-        let sessionFileSha = null; // Stores GitHub SHA or GitLab last_commit_id
+        let sessionFileSha = null;
 
         // --- 3. UI HELPERS (Modified) ---
         const statusEl = document.getElementById('status');
         const fileExplorerEl = document.getElementById('file-explorer');
-        
-        // MODIFIED: 'fileContentEl' is now the <code> tag
         const fileContentEl = document.getElementById('file-content'); 
-        // NEW: We also need its <pre> wrapper to set the language class
         const fileContentWrapperEl = document.getElementById('file-content-wrapper'); 
-
         const currentPathEl = document.getElementById('current-path');
         const fileViewWrapperEl = document.getElementById('file-view-wrapper');
         const fileDisplayEl = document.getElementById('file-display');
@@ -136,17 +307,25 @@
         const btnCommitEl = document.getElementById('btn-commit');
         const btnCancelEditEl = document.getElementById('btn-cancel-edit');
         const serviceDisplayEl = document.getElementById('service-display'); 
+        
+        // MODIFIED: 'views' now controls the high-level states
+        const appWrapperEl = document.getElementById('app-wrapper'); // NEW
         const views = {
             setup: document.getElementById('view-setup'),
             unlock: document.getElementById('view-unlock'),
-            loggedin: document.getElementById('view-loggedin')
+            loggedin: appWrapperEl // MODIFIED
         };
         
-        // (Helper functions showView, setStatus are unchanged)
         function showView(viewName) {
             Object.values(views).forEach(v => v.classList.add('hidden'));
             if (views[viewName]) {
                 views[viewName].classList.remove('hidden');
+                // NEW: Make sure auth views are centered
+                if (viewName === 'setup' || viewName === 'unlock') {
+                    document.body.style.display = 'flex';
+                } else {
+                    document.body.style.display = 'block';
+                }
             }
         }
         function setStatus(message) {
@@ -154,7 +333,6 @@
         }
 
         // --- 4. NATIVE IndexedDB HELPERS (Unchanged) ---
-        // (initDB, dbGet, dbPut, dbDelete are all unchanged)
         function initDB() {
             return new Promise((resolve, reject) => {
                 const request = window.indexedDB.open(DB_NAME, 1);
@@ -199,9 +377,7 @@
             });
         }
 
-
         // --- 5. NATIVE CRYPTO HELPERS (Unchanged) ---
-        // (deriveKey, encryptToken, decryptToken are all unchanged)
         async function deriveKey(password, salt) {
             const enc = new TextEncoder();
             const passwordBuffer = enc.encode(password);
@@ -240,9 +416,7 @@
             }
         }
         
-
         // --- 6. CORE APP LOGIC & EVENT HANDLERS (Unchanged) ---
-        // (main, form-unlock, form-setup, btn-logout are all unchanged)
         async function main() {
             try {
                 await initDB();
@@ -281,7 +455,6 @@
                 serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
                 setStatus('Session unlocked!');
                 showView('loggedin');
-                document.getElementById('unlock-password').value = ''; 
                 
                 await fetchAndRenderContents('');
             } catch (err) {
@@ -300,12 +473,12 @@
                 alert('Please fill out all fields.');
                 return;
             }
-            if (repoPath.split('/').length < 2) { // Allow for group/subgroup/repo
+            if (repoPath.split('/').length < 2) {
                  alert('Repo path must be in "owner/repo" or "group/repo" format.');
                  return;
             }
             if (!token.startsWith('ghp_') && !token.startsWith('github_pat_') && !token.startsWith('glpat_')) {
-                 alert('This does not look like a valid GitHub or GitLab Personal Access Token.');
+                 alert('This does not look like a valid Personal Access Token.');
                  return;
             }
 
@@ -340,14 +513,13 @@
                 currentPath = '';
                 sessionFileSha = null;
                 setStatus('Logged out and token cleared.');
-                showView('setup');
+                showView('setup'); // Show setup view
                 fileExplorerEl.innerHTML = ''; 
                 fileViewWrapperEl.classList.add('hidden');
             }
         };
         
         // --- 7. API ABSTRACTION LAYER (Unchanged) ---
-        // (All the api.github and api.gitlab code is unchanged)
         const api = {
             github: {
                 async request(path, method = 'GET', body = null) {
@@ -415,9 +587,8 @@
             }
         };
 
-        // --- 8. CORE BROWSER LOGIC (Modified) ---
+        // --- 8. CORE BROWSER LOGIC (Modified for mobile) ---
 
-        // NEW: Helper function to map file extensions to Prism language classes
         function getLanguageClass(path) {
             const extension = path.split('.').pop();
             switch (extension) {
@@ -432,24 +603,24 @@
                 case 'css':
                     return 'language-css';
                 case 'xml':
-                case 'rdf': // Assuming RDF/XML
+                case 'rdf': 
                     return 'language-markup';
-                // Add more as needed
                 default:
-                    return 'language-none'; // A plain-text default
+                    return 'language-none'; 
             }
         }
         
-        /** Fetches content (file or dir) and renders it (Unchanged) */
+        /** Fetches content (file or dir) and renders it */
         async function fetchAndRenderContents(path) {
             setStatus('Fetching repository contents...');
             fileExplorerEl.innerHTML = '<li>Loading...</li>';
             fileViewWrapperEl.classList.add('hidden'); 
-            fileExplorerEl.classList.remove('hidden'); 
+            
+            // NEW: On mobile, show the sidebar
+            appWrapperEl.classList.remove('mobile-content-view');
             
             try {
                 const data = await api[sessionService].getContents(path);
-                
                 currentPath = path; 
                 currentPathEl.textContent = path || '/'; 
                 
@@ -457,6 +628,8 @@
                     renderDirectory(data.items);
                 } else if (data.type === 'file') {
                     renderFile(data.content, data.sha);
+                    // NEW: On mobile, flip to the content view
+                    appWrapperEl.classList.add('mobile-content-view');
                 }
                 setStatus('Ready.');
             } catch (err) {
@@ -484,33 +657,20 @@
             }
         }
 
-        /** Renders the content of a single file (MODIFIED) */
+        /** Renders the content of a single file (Unchanged) */
         function renderFile(decodedContent, sha) {
-            fileExplorerEl.classList.add('hidden');
-            fileViewWrapperEl.classList.remove('hidden');
+            fileViewWrapperEl.classList.remove('hidden'); // Show content wrapper
             fileEditDisplayEl.classList.add('hidden');
             fileDisplayEl.classList.remove('hidden');
 
-            sessionFileSha = sha; // Store the sha
-
-            // --- NEW HIGHLIGHTING LOGIC ---
-            // 1. Get the language class
+            sessionFileSha = sha; 
             const langClass = getLanguageClass(currentPath);
-
-            // 2. Set the content in the <code> tag
             fileContentEl.textContent = decodedContent;
-
-            // 3. Set the class on the <pre> wrapper
             fileContentWrapperEl.className = langClass;
 
-            // 4. Tell Prism to highlight the element
-            // (Window.Prism is the object from prism.js)
             if (window.Prism) {
                 window.Prism.highlightElement(fileContentEl);
             }
-            // --- END NEW LOGIC ---
-
-            // We can edit any text-based file
             btnEditEl.classList.remove('hidden');
         }
 
@@ -534,8 +694,17 @@
             return btoa(binaryString);
         }
 
-        /** Handle "Back" button click (Unchanged) */
+        /** Handle "Back" button click (Modified) */
         document.getElementById('btn-back').onclick = () => {
+            // NEW: On mobile, "Back" from a file just shows the sidebar
+            if (appWrapperEl.classList.contains('mobile-content-view')) {
+                appWrapperEl.classList.remove('mobile-content-view');
+                // Hide the file viewer so the list is visible
+                fileViewWrapperEl.classList.add('hidden');
+                return;
+            }
+
+            // Original logic: Go up a directory
             if (currentPath === '') return; 
             const parts = currentPath.split('/');
             parts.pop(); 
@@ -543,23 +712,16 @@
             fetchAndRenderContents(newPath); 
         };
 
-        // --- 9. EDIT/COMMIT EVENT HANDLERS (Modified) ---
-
-        /** "Edit" button click (Unchanged) */
+        // --- 9. EDIT/COMMIT EVENT HANDLERS (Unchanged) ---
         btnEditEl.onclick = () => {
-            // This still works because fileContentEl is the <code> tag
             fileEditorEl.value = fileContentEl.textContent; 
             fileDisplayEl.classList.add('hidden');
             fileEditDisplayEl.classList.remove('hidden');
         };
-
-        /** "Cancel Edit" button click (Unchanged) */
         btnCancelEditEl.onclick = () => {
             fileEditDisplayEl.classList.add('hidden');
             fileDisplayEl.classList.remove('hidden');
         };
-        
-        /** "Save (Commit)" button click (MODIFIED) */
         btnCommitEl.onclick = async () => {
             const newContent = fileEditorEl.value;
             const commitMessage = prompt('Enter a commit message:', 'Updated file from PWA');
@@ -572,9 +734,7 @@
                 alert('Error: File SHA/ID is missing. Cannot commit.');
                 return;
             }
-
             setStatus('Committing file...');
-            
             try {
                 const newSha = await api[sessionService].commitFile(
                     currentPath, 
@@ -584,15 +744,13 @@
                 );
 
                 setStatus('File committed successfully!');
-                sessionFileSha = newSha; // Update the SHA!
+                sessionFileSha = newSha; 
                 
-                // --- NEW: Re-highlight after commit ---
                 fileContentEl.textContent = newContent;
                 if (window.Prism) {
                     window.Prism.highlightElement(fileContentEl);
                 }
-                // --- END NEW ---
-
+                
                 fileEditDisplayEl.classList.add('hidden');
                 fileDisplayEl.classList.remove('hidden');
 
@@ -603,7 +761,6 @@
                 }
             }
         };
-
 
         // --- 10. START THE APP ---
         window.onload = main;
