@@ -211,71 +211,83 @@
 </head>
 <body>
 
-    <h1>Secure PWA PoC (GitHub / GitLab)</h1>
-    <p>Status: <b id="status">Initializing...</b></p>
-
     <div id="view-setup" class="auth-view">
-        <h3>Setup Connection</h3>
-        <form id="form-setup">
-            <label for="setup-service">Git Service</label>
-            <select id="setup-service">
-                <option value="github">GitHub</option>
-                <option value="gitlab">GitLab</option>
-            </select>
+        <div> <h3>Setup Connection</h3>
+            <p>
+                Please generate a Personal Access Token with read/write access to your repository's contents.
+            </p>
+            <form id="form-setup">
+                <label for="setup-service">Git Service</label>
+                <select id="setup-service">
+                    <option value="github">GitHub</option>
+                    <option value="gitlab">GitLab</option>
+                </select>
 
-            <div id="gitlab-host-wrapper" class="hidden">
-                <label for="setup-gitlab-host">GitLab Instance URL (e.g., https://gitlab.mycompany.com)</label>
-                <input type="text" id="setup-gitlab-host" placeholder="https://gitlab.com">
-            </div>
-
-            <label for="setup-repo">Repository Path (e.g., owner/repo)</label>
-            <input type="text" id="setup-repo" placeholder="your-username/your-repo-name" required>
-            
-            <label for="setup-token">Personal Access Token</label>
-            <input type="text" id="setup-token" placeholder="github_pat_... or glpat-..." required>
-            
-            <label for="setup-password">Create a Master Password</label>
-            <input type="password" id="setup-password" placeholder="Your new master password" required>
-            
-            <button type="submit">Encrypt and Save</button>
-        </form>
-    </div>
-
-    <div id="view-unlock" class="auth-view hidden">
-        <h3>Unlock Session</h3>
-        <p>Welcome back! Please enter your master password to decrypt your connection.</p>
-        <form id="form-unlock">
-            <input type="password" id="unlock-password" placeholder="Your master password" required>
-            <button type="submit">Unlock</button>
-        </form>
-    </div>
-
-    <div id="view-loggedin" class="hidden">
-        <h3>Session Unlocked (<span id="service-display"></span>)</h3>
-        <p>Session token is loaded in memory.</p>
-        <button id="btn-logout" class="danger">Log Out & Clear Token</button>
-
-        <div id="explorer-view">
-            <h3>Repository Browser</h3>
-            <button id="btn-back" class="secondary">Up One Level</button>
-            <h4 style="margin-bottom: 5px;">Current Path: <code id="current-path">/</code></h4>
-            <ul id="file-explorer"></ul>
-            <div id="file-view-wrapper" class="hidden">
-                <div id="file-display">
-                    <button id="btn-edit" class="secondary">Edit File</button>
-                    <pre id="file-content-wrapper"><code id="file-content"></code></pre>
+                <div id="gitlab-host-wrapper" class="hidden">
+                    <label for="setup-gitlab-host">GitLab Instance URL (e.g., https://gitlab.mycompany.com)</label>
+                    <input type="text" id="setup-gitlab-host" placeholder="https://gitlab.com">
                 </div>
-                <div id="file-edit-display" class="hidden">
-                    <textarea id="file-editor"></textarea>
-                    <button id="btn-commit" class="success">Save (Commit)</button>
-                    <button id="btn-cancel-edit" class="secondary">Cancel</button>
-                </div>
-            </div>
+
+                <label for="setup-repo">Repository Path (e.g., owner/repo)</label>
+                <input type="text" id="setup-repo" placeholder="your-username/your-repo-name" required>
+
+                <label for="setup-token">Personal Access Token</label>
+                <input type="text" id="setup-token" placeholder="github_pat_... or glpat-..." required>
+
+                <label for="setup-password">Create a Master Password</label>
+                <input type="password" id="setup-password" placeholder="Your new master password" required>
+
+                <button type="submit">Encrypt and Save</button>
+            </form>
         </div>
     </div>
 
+    <div id="view-unlock" class="auth-view hidden">
+        <div> <h3>Unlock Session</h3>
+            <p>Welcome back! Enter your password to decrypt your connection.</p>
+            <form id="form-unlock">
+                <input type="password" id="unlock-password" placeholder="Your master password" required>
+                <button type="submit">Unlock</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="app-wrapper" class="hidden">
+
+        <header id="app-header">
+            <h3><span id="service-display"></span> Repo</h3>
+            <span id="status">Initializing...</span>
+            <button id="btn-logout" class="danger">Log Out</button>
+        </header>
+
+        <main id="app-main">
+
+            <aside id="app-sidebar">
+                <button id="btn-back" class="secondary" style="width: 100%; margin-bottom: 10px;">Up One Level</button>
+                <h4>Current Path: <code id="current-path">/</code></h4>
+                <ul id="file-explorer"></ul>
+            </aside>
+
+            <section id="app-content">
+                <div id="file-view-wrapper">
+                    <div id="file-display">
+                        <button id="btn-edit" class="secondary">Edit File</button>
+                        <pre id="file-content-wrapper"><code id="file-content"></code></pre>
+                    </div>
+                    <div id="file-edit-display" class="hidden">
+                        <textarea id="file-editor"></textarea>
+                        <div> <button id="btn-commit" class="success">Save (Commit)</button>
+                            <button id="btn-cancel-edit" class="secondary">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
     <script src="prism.js"></script>
-<script>
+    <script>
 // --- 1. CONFIGURATION (Unchanged) ---
         const DB_NAME = 'pwa-secure-db';
         const DB_STORE_NAME = 'settings';
