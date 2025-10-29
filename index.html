@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secure PWA (Multi-Git) PoC</title>
+
+    <link href="prism.css" rel="stylesheet" />
+
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
         div { margin-bottom: 15px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }
@@ -16,7 +19,18 @@
         button.secondary { background: #6a737d; }
         button.success { background: #28a745; }
         button.success:hover { background: #218838; }
-        pre { background: #f6f8fa; padding: 15px; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
+        
+        /* MODIFIED: Default <pre> style is now for Prism */
+        pre[class*="language-"] {
+            margin: 0;
+            padding: 1.5em;
+            font-size: 14px;
+            line-height: 1.5;
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 6px;
+        }
+
         .hidden { display: none; }
         #file-explorer { list-style: none; padding: 0; }
         #file-explorer li { font-size: 18px; padding: 8px; border-radius: 5px; cursor: pointer; }
@@ -42,16 +56,12 @@
                 <option value="github">GitHub</option>
                 <option value="gitlab">GitLab</option>
             </select>
-
             <label for="setup-repo">Repository Path (e.g., owner/repo)</label>
             <input type="text" id="setup-repo" placeholder="your-username/your-repo-name" required>
-            
             <label for="setup-token">Personal Access Token</label>
             <input type="text" id="setup-token" placeholder="github_pat_... or glpat_..." required>
-            
             <label for="setup-password">Create a Master Password</label>
             <input type="password" id="setup-password" placeholder="Your new master password" required>
-            
             <button type="submit">Encrypt and Save</button>
         </form>
     </div>
@@ -80,7 +90,8 @@
             <div id="file-view-wrapper" class="hidden">
                 <div id="file-display">
                     <button id="btn-edit" class="secondary">Edit File</button>
-                    <pre id="file-content"></pre>
+                    
+                    <pre id="file-content-wrapper"><code id="file-content"></code></pre>
                 </div>
                 <div id="file-edit-display" class="hidden">
                     <textarea id="file-editor"></textarea>
@@ -91,13 +102,15 @@
         </div>
     </div>
 
+    <script src="prism.js"></script>
+
     <script>
         // --- 1. CONFIGURATION (Unchanged) ---
         const DB_NAME = 'pwa-secure-db';
         const DB_STORE_NAME = 'settings';
         const DB_TOKEN_KEY = 'github_token_data';
         
-        // --- 2. GLOBAL STATE (Modified) ---
+        // --- 2. GLOBAL STATE (Unchanged) ---
         let db; 
         let sessionAccessToken = null; 
         let sessionRepoPath = null; 
@@ -108,7 +121,12 @@
         // --- 3. UI HELPERS (Modified) ---
         const statusEl = document.getElementById('status');
         const fileExplorerEl = document.getElementById('file-explorer');
-        const fileContentEl = document.getElementById('file-content');
+        
+        // MODIFIED: 'fileContentEl' is now the <code> tag
+        const fileContentEl = document.getElementById('file-content'); 
+        // NEW: We also need its <pre> wrapper to set the language class
+        const fileContentWrapperEl = document.getElementById('file-content-wrapper'); 
+
         const currentPathEl = document.getElementById('current-path');
         const fileViewWrapperEl = document.getElementById('file-view-wrapper');
         const fileDisplayEl = document.getElementById('file-display');
@@ -223,8 +241,8 @@
         }
         
 
-        // --- 6. CORE APP LOGIC & EVENT HANDLERS (Modified) ---
-        
+        // --- 6. CORE APP LOGIC & EVENT HANDLERS (Unchanged) ---
+        // (main, form-unlock, form-setup, btn-logout are all unchanged)
         async function main() {
             try {
                 await initDB();
@@ -256,10 +274,8 @@
                     encryptedData.iv
                 );
                 
-                // Set all global state from DB
                 sessionAccessToken = token; 
                 sessionRepoPath = encryptedData.repoPath;
-                // For backward compatibility, default to github if 'service' is missing
                 sessionService = encryptedData.service || 'github';
                 
                 serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
@@ -275,7 +291,6 @@
 
         document.getElementById('form-setup').onsubmit = async (e) => {
             e.preventDefault();
-            // Get service type
             const service = document.getElementById('setup-service').value;
             const repoPath = document.getElementById('setup-repo').value;
             const token = document.getElementById('setup-token').value;
@@ -289,7 +304,6 @@
                  alert('Repo path must be in "owner/repo" or "group/repo" format.');
                  return;
             }
-            // Broader token validation
             if (!token.startsWith('ghp_') && !token.startsWith('github_pat_') && !token.startsWith('glpat_')) {
                  alert('This does not look like a valid GitHub or GitLab Personal Access Token.');
                  return;
@@ -298,7 +312,6 @@
             setStatus('Encrypting and saving token...');
             try {
                 const encryptedData = await encryptToken(token, password);
-                // Save all setup data
                 encryptedData.repoPath = repoPath;
                 encryptedData.service = service;
                 
@@ -306,7 +319,9 @@
                 
                 sessionAccessToken = token; 
                 sessionRepoPath = repoPath;
-                sessionService = service; // serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
+                sessionService = service;
+                
+                serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
                 setStatus('Token encrypted and saved!');
                 showView('loggedin');
                 await fetchAndRenderContents('');
@@ -321,7 +336,8 @@
                 await dbDelete(DB_TOKEN_KEY);
                 sessionAccessToken = null;
                 sessionRepoPath = null;
-                sessionService = null; // currentPath = '';
+                sessionService = null; 
+                currentPath = '';
                 sessionFileSha = null;
                 setStatus('Logged out and token cleared.');
                 showView('setup');
@@ -330,14 +346,10 @@
             }
         };
         
-        // --- 7. ---
-
+        // --- 7. API ABSTRACTION LAYER (Unchanged) ---
+        // (All the api.github and api.gitlab code is unchanged)
         const api = {
-            /**
-             * GitHub-specific API implementations
-             */
             github: {
-                /** Makes an authenticated fetch call to the GitHub API */
                 async request(path, method = 'GET', body = null) {
                     const url = `https://api.github.com/repos/${sessionRepoPath}/${path}`;
                     const options = {
@@ -360,32 +372,26 @@
                     }
                     return response.status === 204 ? null : response.json();
                 },
-
-                /** Fetches contents and normalizes them to a standard format */
                 async getContents(path) {
                     const data = await this.request(`contents/${path}`);
                     if (Array.isArray(data)) {
-                        // It's a directory
                         return {
                             type: 'dir',
                             items: data.map(item => ({
                                 name: item.name,
-                                type: item.type, // 'dir' or 'file'
+                                type: item.type,
                                 path: item.path
                             }))
                         };
                     } else if (data.type === 'file') {
-                        // It's a file
                         if (data.encoding !== 'base64') throw new Error('Cannot display non-Base64 file');
                         return {
                             type: 'file',
-                            sha: data.sha, // Save the sha
+                            sha: data.sha, 
                             content: decodeBase64(data.content)
                         };
                     }
                 },
-                
-                /** Commits a file change */
                 async commitFile(path, newContent, sha, commitMessage) {
                     const body = {
                         message: commitMessage,
@@ -393,75 +399,48 @@
                         sha: sha
                     };
                     const data = await this.request(`contents/${path}`, 'PUT', body);
-                    // Return the new SHA
                     return data.content.sha; 
                 }
             },
-
-            /**
-             * GitLab-specific API implementations (STUBS)
-             * * ⚠️ --- YOU MUST IMPLEMENT THESE --- ⚠️
-             *
-             * GitLab API is different. You'll need:
-             * 1. URL-encode the repo path: `encodeURIComponent(sessionRepoPath)`
-             * 2. Use 'PRIVATE-TOKEN' header, not 'Authorization'
-             * 3. Endpoints are different.
-             *
-             * Docs:
-             * - Get repo tree: https://docs.gitlab.com/ee/api/repositories.html#list-repository-tree
-             * - Get file: https://docs.gitlab.com/ee/api/repository_files.html#get-file-from-repository
-             * - Commit: https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
-             */
             gitlab: {
-                /** Makes an authenticated fetch call to the GitLab API */
                 async request(path, method = 'GET', body = null) {
-                    // --- TODO: Implement GitLab API request logic ---
-                    // Note: URL must be like https://gitlab.com/api/v4/projects/{encodeURIComponent(sessionRepoPath)}/{path}
-                    // Note: Header must be 'PRIVATE-TOKEN': sessionAccessToken
                     throw new Error('GitLab API "request" function not implemented.');
                 },
-
-                /** Fetches contents and normalizes them to a standard format */
                 async getContents(path) {
-                    // --- TODO: Implement GitLab getContents logic ---
-                    // Note: You'll call their "list repository tree" and "get file" endpoints
-                    // and then *normalize* the response to match the format of api.github.getContents
-                    /*
-                    Example structure to return:
-                    return {
-                        type: 'dir',
-                        items: [ { name: '...', type: '...', path: '...' } ]
-                    }
-                    OR
-                    return {
-                        type: 'file',
-                        sha: '...', // Use fileData.last_commit_id
-                        content: '...' // GitLab content is also Base64
-                    }
-                    */
                     throw new Error('GitLab API "getContents" function not implemented.');
                 },
-                
-                /** Commits a file change */
                 async commitFile(path, newContent, sha, commitMessage) {
-                    // --- TODO: Implement GitLab commitFile logic ---
-                    // Note: GitLab's commit API is very different. It's often easier to
-                    // use the "Update existing file" endpoint:
-                    // Docs: https://docs.gitlab.com/ee/api/repository_files.html#update-existing-file-in-repository
-                    // You'll need the 'branch' (e.g., 'main') and the new content.
-                    // The 'sha' (last_commit_id) isn't always required for a simple update.
-                    /*
-                    Example return:
-                    return new_file_sha; // Return the new commit ID
-                    */
                     throw new Error('GitLab API "commitFile" function not implemented.');
                 }
             }
         };
 
-        // --- 8. CORE BROWSER LOGIC (Uses Abstraction Layer) ---
+        // --- 8. CORE BROWSER LOGIC (Modified) ---
 
-        /** Fetches content (file or dir) and renders it */
+        // NEW: Helper function to map file extensions to Prism language classes
+        function getLanguageClass(path) {
+            const extension = path.split('.').pop();
+            switch (extension) {
+                case 'ttl':
+                    return 'language-turtle';
+                case 'rq':
+                    return 'language-sparql';
+                case 'nt':
+                    return 'language-ntriples';
+                case 'js':
+                    return 'language-javascript';
+                case 'css':
+                    return 'language-css';
+                case 'xml':
+                case 'rdf': // Assuming RDF/XML
+                    return 'language-markup';
+                // Add more as needed
+                default:
+                    return 'language-none'; // A plain-text default
+            }
+        }
+        
+        /** Fetches content (file or dir) and renders it (Unchanged) */
         async function fetchAndRenderContents(path) {
             setStatus('Fetching repository contents...');
             fileExplorerEl.innerHTML = '<li>Loading...</li>';
@@ -469,7 +448,6 @@
             fileExplorerEl.classList.remove('hidden'); 
             
             try {
-                // Call the router
                 const data = await api[sessionService].getContents(path);
                 
                 currentPath = path; 
@@ -506,7 +484,7 @@
             }
         }
 
-        /** Renders the content of a single file (Modified) */
+        /** Renders the content of a single file (MODIFIED) */
         function renderFile(decodedContent, sha) {
             fileExplorerEl.classList.add('hidden');
             fileViewWrapperEl.classList.remove('hidden');
@@ -514,7 +492,25 @@
             fileDisplayEl.classList.remove('hidden');
 
             sessionFileSha = sha; // Store the sha
-            fileContentEl.textContent = decodedContent; // Content is already decoded
+
+            // --- NEW HIGHLIGHTING LOGIC ---
+            // 1. Get the language class
+            const langClass = getLanguageClass(currentPath);
+
+            // 2. Set the content in the <code> tag
+            fileContentEl.textContent = decodedContent;
+
+            // 3. Set the class on the <pre> wrapper
+            fileContentWrapperEl.className = langClass;
+
+            // 4. Tell Prism to highlight the element
+            // (Window.Prism is the object from prism.js)
+            if (window.Prism) {
+                window.Prism.highlightElement(fileContentEl);
+            }
+            // --- END NEW LOGIC ---
+
+            // We can edit any text-based file
             btnEditEl.classList.remove('hidden');
         }
 
@@ -551,6 +547,7 @@
 
         /** "Edit" button click (Unchanged) */
         btnEditEl.onclick = () => {
+            // This still works because fileContentEl is the <code> tag
             fileEditorEl.value = fileContentEl.textContent; 
             fileDisplayEl.classList.add('hidden');
             fileEditDisplayEl.classList.remove('hidden');
@@ -562,7 +559,7 @@
             fileDisplayEl.classList.remove('hidden');
         };
         
-        /** "Save (Commit)" button click (Modified) */
+        /** "Save (Commit)" button click (MODIFIED) */
         btnCommitEl.onclick = async () => {
             const newContent = fileEditorEl.value;
             const commitMessage = prompt('Enter a commit message:', 'Updated file from PWA');
@@ -579,7 +576,6 @@
             setStatus('Committing file...');
             
             try {
-                // Call the router
                 const newSha = await api[sessionService].commitFile(
                     currentPath, 
                     newContent, 
@@ -589,7 +585,14 @@
 
                 setStatus('File committed successfully!');
                 sessionFileSha = newSha; // Update the SHA!
+                
+                // --- NEW: Re-highlight after commit ---
                 fileContentEl.textContent = newContent;
+                if (window.Prism) {
+                    window.Prism.highlightElement(fileContentEl);
+                }
+                // --- END NEW ---
+
                 fileEditDisplayEl.classList.add('hidden');
                 fileDisplayEl.classList.remove('hidden');
 
