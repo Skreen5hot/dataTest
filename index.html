@@ -245,8 +245,8 @@
                 alert('Please provide both a token and a password.');
                 return;
             }
-            if (!token.startsWith('ghp_')) {
-                 alert('This does not look like a valid Personal Access Token.');
+if (!token.startsWith('github_pat_')) {
+                 alert('This does not look like a valid Fine-grained Personal Access Token. It should start with "github_pat_".');
                  return;
             }
 
