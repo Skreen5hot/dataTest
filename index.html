@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure PWA (BYOT) PoC</title>
+    <title>Secure PWA (Multi-Git) PoC</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
         div { margin-bottom: 15px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }
-        input[type="password"], input[type="text"] { width: 95%; padding: 10px; font-size: 16px; margin-bottom: 10px; }
+        /* Added select style */
+        input[type="password"], input[type="text"], select { width: 98%; padding: 10px; font-size: 16px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; }
         button { padding: 12px 18px; font-size: 16px; cursor: pointer; background: #0366d6; color: white; border: none; border-radius: 6px; margin-right: 5px; }
         button:hover { background: #0056b3; }
         button.danger { background: #d73a49; }
@@ -21,43 +22,43 @@
         #file-explorer li { font-size: 18px; padding: 8px; border-radius: 5px; cursor: pointer; }
         #file-explorer li:hover { background: #f6f8fa; }
         #file-explorer li a { text-decoration: none; color: #0366d6; }
-        /* Text area for editing */
-        #file-editor {
-            width: 95%;
-            height: 400px;
-            font-family: monospace;
-            font-size: 14px;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-        }
+        #file-editor { width: 95%; height: 400px; font-family: monospace; font-size: 14px; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
     </style>
 </head>
 <body>
 
-    <h1>Secure PWA PoC (User Token)</h1>
+    <h1>Secure PWA PoC (GitHub / GitLab)</h1>
     <p>Status: <b id="status">Initializing...</b></p>
 
     <div id="view-setup">
         <h3>Setup Connection</h3>
         <p>
-            Please generate a <a href="https://github.com/settings/tokens?type=beta" target="_blank">Fine-grained Personal Access Token</a>
-            on GitHub. Grant it **"Read & Write"** access to **"Contents"** for your single repository.
+            Please generate a Personal Access Token from your service.
+            Grant it **"Read & Write"** access to **"Contents"** / **"Repository"** for your single repository.
         </p>
         <form id="form-setup">
+            <label for="setup-service">Git Service</label>
+            <select id="setup-service">
+                <option value="github">GitHub</option>
+                <option value="gitlab">GitLab</option>
+            </select>
+
             <label for="setup-repo">Repository Path (e.g., owner/repo)</label>
             <input type="text" id="setup-repo" placeholder="your-username/your-repo-name" required>
-            <label for="setup-token">GitHub Personal Access Token (github_pat_...)</label>
-            <input type="text" id="setup-token" placeholder="github_pat_..." required>
-            <label for="setup-password">Create a Master Password (to encrypt this token)</label>
+            
+            <label for="setup-token">Personal Access Token</label>
+            <input type="text" id="setup-token" placeholder="github_pat_... or glpat_..." required>
+            
+            <label for="setup-password">Create a Master Password</label>
             <input type="password" id="setup-password" placeholder="Your new master password" required>
+            
             <button type="submit">Encrypt and Save</button>
         </form>
     </div>
 
     <div id="view-unlock" class="hidden">
         <h3>Unlock Session</h3>
-        <p>Welcome back! Please enter your master password to decrypt your GitHub connection.</p>
+        <p>Welcome back! Please enter your master password to decrypt your connection.</p>
         <form id="form-unlock">
             <input type="password" id="unlock-password" placeholder="Your master password" required>
             <button type="submit">Unlock</button>
@@ -65,7 +66,7 @@
     </div>
 
     <div id="view-loggedin" class="hidden">
-        <h3>Session Unlocked</h3>
+        <h3>Session Unlocked (<span id="service-display"></span>)</h3>
         <p>Session token is loaded in memory.</p>
         <button id="btn-logout" class="danger">Log Out & Clear Token</button>
 
@@ -81,7 +82,6 @@
                     <button id="btn-edit" class="secondary">Edit File</button>
                     <pre id="file-content"></pre>
                 </div>
-
                 <div id="file-edit-display" class="hidden">
                     <textarea id="file-editor"></textarea>
                     <button id="btn-commit" class="success">Save (Commit)</button>
@@ -97,19 +97,19 @@
         const DB_STORE_NAME = 'settings';
         const DB_TOKEN_KEY = 'github_token_data';
         
-        // --- 2. GLOBAL STATE ---
+        // --- 2. GLOBAL STATE (Modified) ---
         let db; 
         let sessionAccessToken = null; 
         let sessionRepoPath = null; 
+        let sessionService = null; // 'github' or 'gitlab'
         let currentPath = ''; 
-        let sessionFileSha = null; // Store the SHA of the file being viewed
+        let sessionFileSha = null; // Stores GitHub SHA or GitLab last_commit_id
 
         // --- 3. UI HELPERS (Modified) ---
         const statusEl = document.getElementById('status');
         const fileExplorerEl = document.getElementById('file-explorer');
         const fileContentEl = document.getElementById('file-content');
         const currentPathEl = document.getElementById('current-path');
-        // Cache all new UI elements
         const fileViewWrapperEl = document.getElementById('file-view-wrapper');
         const fileDisplayEl = document.getElementById('file-display');
         const fileEditDisplayEl = document.getElementById('file-edit-display');
@@ -117,13 +117,13 @@
         const btnEditEl = document.getElementById('btn-edit');
         const btnCommitEl = document.getElementById('btn-commit');
         const btnCancelEditEl = document.getElementById('btn-cancel-edit');
-        
-        const views = {
+        const serviceDisplayEl = document.getElementById('service-display'); // const views = {
             setup: document.getElementById('view-setup'),
             unlock: document.getElementById('view-unlock'),
             loggedin: document.getElementById('view-loggedin')
         };
         
+        // (Helper functions showView, setStatus are unchanged)
         function showView(viewName) {
             Object.values(views).forEach(v => v.classList.add('hidden'));
             if (views[viewName]) {
@@ -135,6 +135,7 @@
         }
 
         // --- 4. NATIVE IndexedDB HELPERS (Unchanged) ---
+        // (initDB, dbGet, dbPut, dbDelete are all unchanged)
         function initDB() {
             return new Promise((resolve, reject) => {
                 const request = window.indexedDB.open(DB_NAME, 1);
@@ -179,7 +180,9 @@
             });
         }
 
+
         // --- 5. NATIVE CRYPTO HELPERS (Unchanged) ---
+        // (deriveKey, encryptToken, decryptToken are all unchanged)
         async function deriveKey(password, salt) {
             const enc = new TextEncoder();
             const passwordBuffer = enc.encode(password);
@@ -218,6 +221,7 @@
             }
         }
         
+
         // --- 6. CORE APP LOGIC & EVENT HANDLERS (Modified) ---
         
         async function main() {
@@ -251,9 +255,13 @@
                     encryptedData.iv
                 );
                 
+                // Set all global state from DB
                 sessionAccessToken = token; 
-                sessionRepoPath = encryptedData.repoPath; // THIS IS THE LINE YOU VERIFIED
+                sessionRepoPath = encryptedData.repoPath;
+                // For backward compatibility, default to github if 'service' is missing
+                sessionService = encryptedData.service || 'github';
                 
+                serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
                 setStatus('Session unlocked!');
                 showView('loggedin');
                 document.getElementById('unlock-password').value = ''; 
@@ -266,33 +274,38 @@
 
         document.getElementById('form-setup').onsubmit = async (e) => {
             e.preventDefault();
+            // Get service type
+            const service = document.getElementById('setup-service').value;
             const repoPath = document.getElementById('setup-repo').value;
             const token = document.getElementById('setup-token').value;
             const password = document.getElementById('setup-password').value;
 
-            if (!repoPath || !token || !password) {
+            if (!service || !repoPath || !token || !password) {
                 alert('Please fill out all fields.');
                 return;
             }
-            if (repoPath.split('/').length !== 2) {
-                 alert('Repo path must be in "owner/repo" format.');
+            if (repoPath.split('/').length < 2) { // Allow for group/subgroup/repo
+                 alert('Repo path must be in "owner/repo" or "group/repo" format.');
                  return;
             }
-            // Allow 'ghp_' (Classic) or 'github_pat_' (Fine-grained)
-            if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
-                 alert('This does not look like a valid Personal Access Token.');
+            // Broader token validation
+            if (!token.startsWith('ghp_') && !token.startsWith('github_pat_') && !token.startsWith('glpat_')) {
+                 alert('This does not look like a valid GitHub or GitLab Personal Access Token.');
                  return;
             }
 
             setStatus('Encrypting and saving token...');
             try {
                 const encryptedData = await encryptToken(token, password);
-                encryptedData.repoPath = repoPath; // Add repo path
+                // Save all setup data
+                encryptedData.repoPath = repoPath;
+                encryptedData.service = service;
+                
                 await dbPut(encryptedData);
                 
                 sessionAccessToken = token; 
                 sessionRepoPath = repoPath;
-                
+                sessionService = service; // serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
                 setStatus('Token encrypted and saved!');
                 showView('loggedin');
                 await fetchAndRenderContents('');
@@ -307,7 +320,7 @@
                 await dbDelete(DB_TOKEN_KEY);
                 sessionAccessToken = null;
                 sessionRepoPath = null;
-                currentPath = '';
+                sessionService = null; // currentPath = '';
                 sessionFileSha = null;
                 setStatus('Logged out and token cleared.');
                 showView('setup');
@@ -316,62 +329,155 @@
             }
         };
         
-        // --- 7. GITHUB API & BROWSER LOGIC ---
+        // --- 7. ---
 
-        /**
-         * Generic function to make authenticated calls to the GitHub API.
-         * @param {string} path - The API path (e.g., "contents/file.txt").
-         * @param {string} [method='GET'] - The HTTP method.
-         * @param {object} [body=null] - The JSON body for PUT/POST requests.
-         */
-        async function githubAPI(path, method = 'GET', body = null) {
-            const url = `https://api.github.com/repos/${sessionRepoPath}/${path}`;
-            const options = {
-                method: method,
-                headers: {
-                    'Authorization': `Bearer ${sessionAccessToken}`,
-                    'Accept': 'application/vnd.github.v3+json'
+        const api = {
+            /**
+             * GitHub-specific API implementations
+             */
+            github: {
+                /** Makes an authenticated fetch call to the GitHub API */
+                async request(path, method = 'GET', body = null) {
+                    const url = `https://api.github.com/repos/${sessionRepoPath}/${path}`;
+                    const options = {
+                        method: method,
+                        headers: {
+                            'Authorization': `Bearer ${sessionAccessToken}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    };
+                    if (body) {
+                        options.body = JSON.stringify(body);
+                        options.headers['Content-Type'] = 'application/json';
+                    }
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        if (response.status === 401) throw new Error('401 Bad Credentials. Your token may be invalid or expired.');
+                        if (response.status === 404) throw new Error('404 Not Found. Check your repository path.');
+                        if (response.status === 409) throw new Error('409 Conflict. The file has changed on GitHub. Please refresh.');
+                        throw new Error(`GitHub API Error: ${response.status}`);
+                    }
+                    return response.status === 204 ? null : response.json();
+                },
+
+                /** Fetches contents and normalizes them to a standard format */
+                async getContents(path) {
+                    const data = await this.request(`contents/${path}`);
+                    if (Array.isArray(data)) {
+                        // It's a directory
+                        return {
+                            type: 'dir',
+                            items: data.map(item => ({
+                                name: item.name,
+                                type: item.type, // 'dir' or 'file'
+                                path: item.path
+                            }))
+                        };
+                    } else if (data.type === 'file') {
+                        // It's a file
+                        if (data.encoding !== 'base64') throw new Error('Cannot display non-Base64 file');
+                        return {
+                            type: 'file',
+                            sha: data.sha, // Save the sha
+                            content: decodeBase64(data.content)
+                        };
+                    }
+                },
+                
+                /** Commits a file change */
+                async commitFile(path, newContent, sha, commitMessage) {
+                    const body = {
+                        message: commitMessage,
+                        content: encodeBase64(newContent),
+                        sha: sha
+                    };
+                    const data = await this.request(`contents/${path}`, 'PUT', body);
+                    // Return the new SHA
+                    return data.content.sha; 
                 }
-            };
+            },
 
-            if (body) {
-                options.body = JSON.stringify(body);
-                options.headers['Content-Type'] = 'application/json';
-            }
-            
-            const response = await fetch(url, options);
+            /**
+             * GitLab-specific API implementations (STUBS)
+             * * ⚠️ --- YOU MUST IMPLEMENT THESE --- ⚠️
+             *
+             * GitLab API is different. You'll need:
+             * 1. URL-encode the repo path: `encodeURIComponent(sessionRepoPath)`
+             * 2. Use 'PRIVATE-TOKEN' header, not 'Authorization'
+             * 3. Endpoints are different.
+             *
+             * Docs:
+             * - Get repo tree: https://docs.gitlab.com/ee/api/repositories.html#list-repository-tree
+             * - Get file: https://docs.gitlab.com/ee/api/repository_files.html#get-file-from-repository
+             * - Commit: https://docs.gitlab.com/ee/api/commits.html#create-a-commit-with-multiple-files-and-actions
+             */
+            gitlab: {
+                /** Makes an authenticated fetch call to the GitLab API */
+                async request(path, method = 'GET', body = null) {
+                    // --- TODO: Implement GitLab API request logic ---
+                    // Note: URL must be like https://gitlab.com/api/v4/projects/{encodeURIComponent(sessionRepoPath)}/{path}
+                    // Note: Header must be 'PRIVATE-TOKEN': sessionAccessToken
+                    throw new Error('GitLab API "request" function not implemented.');
+                },
 
-            if (!response.ok) {
-                if (response.status === 401) throw new Error('401 Bad Credentials. Your token may be invalid or expired.');
-                if (response.status === 404) throw new Error('404 Not Found. Check your repository path.');
-                if (response.status === 409) throw new Error('409 Conflict. The file has changed on GitHub. Please refresh.');
-                throw new Error(`API Error: ${response.status}`);
+                /** Fetches contents and normalizes them to a standard format */
+                async getContents(path) {
+                    // --- TODO: Implement GitLab getContents logic ---
+                    // Note: You'll call their "list repository tree" and "get file" endpoints
+                    // and then *normalize* the response to match the format of api.github.getContents
+                    /*
+                    Example structure to return:
+                    return {
+                        type: 'dir',
+                        items: [ { name: '...', type: '...', path: '...' } ]
+                    }
+                    OR
+                    return {
+                        type: 'file',
+                        sha: '...', // Use fileData.last_commit_id
+                        content: '...' // GitLab content is also Base64
+                    }
+                    */
+                    throw new Error('GitLab API "getContents" function not implemented.');
+                },
+                
+                /** Commits a file change */
+                async commitFile(path, newContent, sha, commitMessage) {
+                    // --- TODO: Implement GitLab commitFile logic ---
+                    // Note: GitLab's commit API is very different. It's often easier to
+                    // use the "Update existing file" endpoint:
+                    // Docs: https://docs.gitlab.com/ee/api/repository_files.html#update-existing-file-in-repository
+                    // You'll need the 'branch' (e.g., 'main') and the new content.
+                    // The 'sha' (last_commit_id) isn't always required for a simple update.
+                    /*
+                    Example return:
+                    return new_file_sha; // Return the new commit ID
+                    */
+                    throw new Error('GitLab API "commitFile" function not implemented.');
+                }
             }
+        };
 
-            // A 204 No Content response (like from a DELETE) won't have a body
-            if (response.status === 204) {
-                return null;
-            }
-            return response.json();
-        }
+        // --- 8. CORE BROWSER LOGIC (Uses Abstraction Layer) ---
 
         /** Fetches content (file or dir) and renders it */
         async function fetchAndRenderContents(path) {
             setStatus('Fetching repository contents...');
             fileExplorerEl.innerHTML = '<li>Loading...</li>';
-            fileViewWrapperEl.classList.add('hidden'); // Hide file view
-            fileExplorerEl.classList.remove('hidden'); // Show list view
+            fileViewWrapperEl.classList.add('hidden'); 
+            fileExplorerEl.classList.remove('hidden'); 
             
             try {
-                // Use the new generic API function
-                const data = await githubAPI(`contents/${path}`); 
+                // Call the router
+                const data = await api[sessionService].getContents(path);
+                
                 currentPath = path; 
                 currentPathEl.textContent = path || '/'; 
                 
-                if (Array.isArray(data)) {
-                    renderDirectory(data);
+                if (data.type === 'dir') {
+                    renderDirectory(data.items);
                 } else if (data.type === 'file') {
-                    renderFile(data);
+                    renderFile(data.content, data.sha);
                 }
                 setStatus('Ready.');
             } catch (err) {
@@ -380,14 +486,13 @@
             }
         }
 
-        /** Renders a list of files and directories */
+        /** Renders a list of files and directories (Unchanged) */
         function renderDirectory(items) {
             fileExplorerEl.innerHTML = ''; 
             items.sort((a, b) => {
                 if (a.type === b.type) return a.name.localeCompare(b.name);
                 return a.type === 'dir' ? -1 : 1;
             });
-
             for (const item of items) {
                 const li = document.createElement('li');
                 const icon = item.type === 'dir' ? '📁' : '📄';
@@ -400,33 +505,19 @@
             }
         }
 
-        /** Renders the content of a single file */
-        function renderFile(fileData) {
-            fileExplorerEl.classList.add('hidden'); // Hide list
-            fileViewWrapperEl.classList.remove('hidden'); // Show content wrapper
-            fileEditDisplayEl.classList.add('hidden'); // Hide edit view
-            fileDisplayEl.classList.remove('hidden'); // Show read view
+        /** Renders the content of a single file (Modified) */
+        function renderFile(decodedContent, sha) {
+            fileExplorerEl.classList.add('hidden');
+            fileViewWrapperEl.classList.remove('hidden');
+            fileEditDisplayEl.classList.add('hidden');
+            fileDisplayEl.classList.remove('hidden');
 
-            // Store the sha for future commits
-            sessionFileSha = fileData.sha;
-
-            if (fileData.encoding !== 'base64') {
-                fileContentEl.textContent = 'Error: Cannot display this file type (not Base64).';
-                btnEditEl.classList.add('hidden'); // Hide edit button
-                return;
-            }
-
-            try {
-                const decodedContent = decodeBase64(fileData.content);
-                fileContentEl.textContent = decodedContent;
-                btnEditEl.classList.remove('hidden'); // Show edit button
-            } catch (e) {
-                fileContentEl.textContent = 'Error decoding file: ' + e.message;
-                btnEditEl.classList.add('hidden');
-            }
+            sessionFileSha = sha; // Store the sha
+            fileContentEl.textContent = decodedContent; // Content is already decoded
+            btnEditEl.classList.remove('hidden');
         }
 
-        /** Decodes Base64 to a UTF-8 string */
+        /** Decodes Base64 to a UTF-8 string (Unchanged) */
         function decodeBase64(base64String) {
             const binaryString = atob(base64String);
             const len = binaryString.length;
@@ -438,16 +529,15 @@
             return decoder.decode(bytes);
         }
 
-        /** Encodes a UTF-8 string to Base64 */
+        /** Encodes a UTF-8 string to Base64 (Unchanged) */
         function encodeBase64(string) {
-            // Use a robust method for UTF-8 safety
             const encoder = new TextEncoder();
             const data = encoder.encode(string);
             const binaryString = String.fromCharCode.apply(null, data);
             return btoa(binaryString);
         }
 
-        /** Handle "Back" button click */
+        /** Handle "Back" button click (Unchanged) */
         document.getElementById('btn-back').onclick = () => {
             if (currentPath === '') return; 
             const parts = currentPath.split('/');
@@ -456,74 +546,62 @@
             fetchAndRenderContents(newPath); 
         };
 
-        // --- 8. EDIT/COMMIT EVENT HANDLERS ---
+        // --- 9. EDIT/COMMIT EVENT HANDLERS (Modified) ---
 
-        /** "Edit" button click */
+        /** "Edit" button click (Unchanged) */
         btnEditEl.onclick = () => {
-            fileEditorEl.value = fileContentEl.textContent; // Load content into editor
+            fileEditorEl.value = fileContentEl.textContent; 
             fileDisplayEl.classList.add('hidden');
             fileEditDisplayEl.classList.remove('hidden');
         };
 
-        /** "Cancel Edit" button click */
+        /** "Cancel Edit" button click (Unchanged) */
         btnCancelEditEl.onclick = () => {
             fileEditDisplayEl.classList.add('hidden');
             fileDisplayEl.classList.remove('hidden');
         };
         
-        /** "Save (Commit)" button click */
+        /** "Save (Commit)" button click (Modified) */
         btnCommitEl.onclick = async () => {
             const newContent = fileEditorEl.value;
             const commitMessage = prompt('Enter a commit message:', 'Updated file from PWA');
 
             if (!commitMessage) {
                 setStatus('Commit cancelled.');
-                return; // User cancelled prompt
+                return; 
             }
-
             if (sessionFileSha === null) {
-                alert('Error: File SHA is missing. Cannot commit.');
+                alert('Error: File SHA/ID is missing. Cannot commit.');
                 return;
             }
 
-            setStatus('Committing file to GitHub...');
+            setStatus('Committing file...');
             
             try {
-                // 1. Encode the new content to Base64
-                const newContentBase64 = encodeBase64(newContent);
-                
-                // 2. Prepare the request body
-                const body = {
-                    message: commitMessage,
-                    content: newContentBase64,
-                    sha: sessionFileSha // Provide the last known SHA
-                };
+                // Call the router
+                const newSha = await api[sessionService].commitFile(
+                    currentPath, 
+                    newContent, 
+                    sessionFileSha, 
+                    commitMessage
+                );
 
-                // 3. Make the PUT request
-                const data = await githubAPI(`contents/${currentPath}`, 'PUT', body);
-
-                // 4. SUCCESS! Update the UI and stored SHA
                 setStatus('File committed successfully!');
-                
-                // 5. Update the SHA! This is critical.
-                sessionFileSha = data.content.sha;
-
-                // 6. Update the read-only view and switch back
+                sessionFileSha = newSha; // Update the SHA!
                 fileContentEl.textContent = newContent;
                 fileEditDisplayEl.classList.add('hidden');
                 fileDisplayEl.classList.remove('hidden');
 
             } catch (err) {
                 setStatus(`Error committing file: ${err.message}`);
-                // If it's a 409 conflict, the user needs to refresh
                 if (err.message.includes('409')) {
-                    alert('Error: The file has been changed on GitHub since you loaded it. Please go back, refresh the file, and try again.');
+                    alert('Error: The file has been changed since you loaded it. Please go back, refresh the file, and try again.');
                 }
             }
         };
 
 
-        // --- 9. START THE APP ---
+        // --- 10. START THE APP ---
         window.onload = main;
         
     </script>
