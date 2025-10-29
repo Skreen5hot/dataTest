@@ -4,33 +4,209 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secure PWA (Multi-Git) PoC</title>
+
     <link href="prism.css" rel="stylesheet" />
+
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
-        div { margin-bottom: 15px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }
-        input[type="password"], input[type="text"], select { width: 98%; padding: 10px; font-size: 16px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; }
-        button { padding: 12px 18px; font-size: 16px; cursor: pointer; background: #0366d6; color: white; border: none; border-radius: 6px; margin-right: 5px; }
+        /* --- 1. Global & Reset --- */
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            background-color: #f6f8fa;
+            color: #24292e;
+            display: flex; /* Use flex to center auth forms */
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .hidden {
+            display: none !important; /* Use !important to override flex/grid */
+        }
+        button {
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            background: #0366d6;
+            color: white;
+            border: 1px solid rgba(27,31,35,.15);
+            border-radius: 6px;
+            margin-right: 5px;
+            transition: background-color 0.2s;
+        }
         button:hover { background: #0056b3; }
         button.danger { background: #d73a49; }
         button.danger:hover { background: #b02a37; }
-        button.secondary { background: #6a737d; }
+        button.secondary { background: #f6f8fa; color: #24292e; border: 1px solid rgba(27,31,35,.15); }
+        button.secondary:hover { background: #e1e4e8; }
         button.success { background: #28a745; }
         button.success:hover { background: #218838; }
+
+        /* --- 2. Auth Forms (Setup/Unlock) --- */
+        /* These are full-screen overlays */
+        .auth-view {
+            width: 100%;
+            max-width: 440px;
+            padding: 20px;
+        }
+        .auth-view div {
+            background: #fff;
+            border: 1px solid #d1d5da;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .auth-view h3 { margin-top: 0; }
+        .auth-view label { font-weight: 600; display: block; margin-bottom: 5px; }
+        .auth-view input[type="password"],
+        .auth-view input[type="text"],
+        .auth-view select {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            margin-bottom: 15px;
+            border: 1px solid #d1d5da;
+            border-radius: 6px;
+        }
+
+        /* --- 3. Main App Layout --- */
+        #app-wrapper {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100vh;
+            max-width: none;
+            background: #fff;
+        }
+        #app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            border-bottom: 1px solid #d1d5da;
+            background: #f6f8fa;
+        }
+        #app-header h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        #app-header #status {
+            font-size: 14px;
+            color: #586069;
+        }
+        
+        #app-main {
+            display: flex;
+            flex-grow: 1; /* Take up remaining height */
+            overflow: hidden; /* Prevent scrolling at the main level */
+        }
+
+        /* --- 4. Sidebar (File Explorer) --- */
+        #app-sidebar {
+            width: 300px;
+            flex-shrink: 0; /* Don't shrink */
+            border-right: 1px solid #d1d5da;
+            padding: 15px;
+            overflow-y: auto; /* Allow sidebar to scroll */
+        }
+        #app-sidebar h4 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #586069;
+        }
+        #file-explorer {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        #file-explorer li {
+            font-size: 15px;
+            padding: 8px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #file-explorer li:hover { background: #f6f8fa; }
+        #file-explorer li a { text-decoration: none; color: #0366d6; }
+
+        /* --- 5. Content Area (File Viewer/Editor) --- */
+        #app-content {
+            flex-grow: 1; /* Take up remaining space */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* Prevent scrolling, inner <pre> will scroll */
+        }
+        #file-view-wrapper {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow: hidden;
+            border: none; /* Override default */
+            margin: 0;
+        }
+        #file-display, #file-edit-display {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #file-display button { margin-bottom: 15px; flex-shrink: 0; }
+        
         pre[class*="language-"] {
             margin: 0;
             padding: 1.5em;
             font-size: 14px;
             line-height: 1.5;
-            max-height: 400px;
-            overflow-y: auto;
+            flex-grow: 1; /* Make <pre> fill remaining space */
+            overflow: auto; /* Allow <pre> to scroll */
+            border: 1px solid #d1d5da;
             border-radius: 6px;
         }
-        .hidden { display: none; }
-        #file-explorer { list-style: none; padding: 0; }
-        #file-explorer li { font-size: 18px; padding: 8px; border-radius: 5px; cursor: pointer; }
-        #file-explorer li:hover { background: #f6f8fa; }
-        #file-explorer li a { text-decoration: none; color: #0366d6; }
-        #file-editor { width: 95%; height: 400px; font-family: monospace; font-size: 14px; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
+        #file-editor {
+            width: 100%;
+            flex-grow: 1; /* Make <textarea> fill space */
+            font-family: monospace;
+            font-size: 14px;
+            padding: 10px;
+            border: 1px solid #d1d5da;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+
+        /* --- 6. Responsive (Mobile) --- */
+        @media (max-width: 768px) {
+            body {
+                /* On mobile, let auth forms be normal */
+                display: block;
+            }
+            #app-main {
+                flex-direction: column;
+            }
+            #app-sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid #d1d5da;
+                height: 100%; /* Take full height */
+                flex-shrink: 1;
+            }
+            #app-content {
+                height: 100%;
+            }
+            /* JS will toggle this class to show/hide views */
+            .mobile-content-view #app-sidebar {
+                display: none;
+            }
+            .mobile-content-view #app-content {
+                display: flex;
+            }
+            /* By default, hide content view on mobile */
+            #app-content {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body>
@@ -100,18 +276,18 @@
 
     <script src="prism.js"></script>
 
-    <script>
-        // --- 1. CONFIGURATION (Unchanged) ---
+<script>
+// --- 1. CONFIGURATION (Unchanged) ---
         const DB_NAME = 'pwa-secure-db';
         const DB_STORE_NAME = 'settings';
         const DB_TOKEN_KEY = 'github_token_data';
         
-        // --- 2. GLOBAL STATE (Modified) ---
+        // --- 2. GLOBAL STATE (Unchanged) ---
         let db; 
         let sessionAccessToken = null; 
         let sessionRepoPath = null; 
         let sessionService = null;
-        let sessionHostUrl = null; // Holds the API base URL
+        let sessionHostUrl = null;
         let currentPath = ''; 
         let sessionFileSha = null; 
 
@@ -190,7 +366,6 @@
             });
         }
 
-
         // --- 5. NATIVE CRYPTO HELPERS (Unchanged) ---
         async function deriveKey(password, salt) {
             const enc = new TextEncoder();
@@ -230,9 +405,7 @@
             }
         }
         
-        // --- 6. CORE APP LOGIC & EVENT HANDLERS (Modified) ---
-        
-        // NEW: Event listener for the service dropdown
+        // --- 6. CORE APP LOGIC & EVENT HANDLERS (Unchanged) ---
         document.getElementById('setup-service').onchange = (e) => {
             const wrapper = document.getElementById('gitlab-host-wrapper');
             if (e.target.value === 'gitlab') {
@@ -273,11 +446,9 @@
                     encryptedData.iv
                 );
                 
-                // MODIFIED: Load all state
                 sessionAccessToken = token; 
                 sessionRepoPath = encryptedData.repoPath;
                 sessionService = encryptedData.service || 'github';
-                // NEW: Load host URL. Fallback for old data.
                 if (encryptedData.hostUrl) {
                     sessionHostUrl = encryptedData.hostUrl;
                 } else {
@@ -315,21 +486,19 @@
                  return;
             }
 
-            // NEW: Get and validate host URL
             let hostUrl = '';
             if (service === 'github') {
                 hostUrl = 'https://api.github.com';
             } else { // gitlab
                 hostUrl = document.getElementById('setup-gitlab-host').value;
                 if (!hostUrl) {
-                    alert('Please enter your GitLab Instance URL (e.g., https://gitlab.com)');
-                    return;
+                    // Default to gitlab.com if empty
+                    hostUrl = 'https://gitlab.com'; 
                 }
                 if (!hostUrl.startsWith('http')) {
                     alert('Host URL must start with http:// or https://');
                     return;
                 }
-                // Remove trailing slash
                 if (hostUrl.endsWith('/')) {
                     hostUrl = hostUrl.slice(0, -1);
                 }
@@ -338,18 +507,16 @@
             setStatus('Encrypting and saving token...');
             try {
                 const encryptedData = await encryptToken(token, password);
-                // MODIFIED: Save all data
                 encryptedData.repoPath = repoPath;
                 encryptedData.service = service;
-                encryptedData.hostUrl = hostUrl; // NEW
+                encryptedData.hostUrl = hostUrl; 
                 
                 await dbPut(encryptedData);
                 
-                // MODIFIED: Set all state
                 sessionAccessToken = token; 
                 sessionRepoPath = repoPath;
                 sessionService = service;
-                sessionHostUrl = hostUrl; // NEW
+                sessionHostUrl = hostUrl; 
                 
                 serviceDisplayEl.textContent = sessionService === 'github' ? 'GitHub' : 'GitLab';
                 setStatus('Token encrypted and saved!');
@@ -364,11 +531,10 @@
             if (confirm('This will log you out and permanently delete your encrypted token. You will need to set it up again. Continue?')) {
                 setStatus('Logging out...');
                 await dbDelete(DB_TOKEN_KEY);
-                // Clear all session state
                 sessionAccessToken = null;
                 sessionRepoPath = null;
                 sessionService = null; 
-                sessionHostUrl = null; // NEW
+                sessionHostUrl = null;
                 currentPath = '';
                 sessionFileSha = null;
                 setStatus('Logged out and token cleared.');
@@ -378,12 +544,13 @@
             }
         };
         
-        // --- 7. API ABSTRACTION LAYER (Modified) ---
+        // --- 7. API ABSTRACTION LAYER (MODIFIED) ---
         const api = {
+            /**
+             * GitHub implementation (Unchanged)
+             */
             github: {
-                /** Makes an authenticated fetch call to the GitHub API */
                 async request(path, method = 'GET', body = null) {
-                    // MODIFIED: Use sessionHostUrl
                     const url = `${sessionHostUrl}/repos/${sessionRepoPath}/${path}`;
                     const options = {
                         method: method,
@@ -405,7 +572,6 @@
                     }
                     return response.status === 204 ? null : response.json();
                 },
-                // (getContents and commitFile are unchanged)
                 async getContents(path) {
                     const data = await this.request(`contents/${path}`);
                     if (Array.isArray(data)) {
@@ -436,20 +602,107 @@
                     return data.content.sha; 
                 }
             },
+
+            /**
+             * GitLab implementation (NOW IMPLEMENTED)
+             */
             gitlab: {
-                /** Makes an authenticated fetch call to the GitLab API */
-                async request(path, method = 'GET', body = null) {
-                    // --- TODO: Implement GitLab API request logic ---
-                    // MODIFIED: Updated stub with correct URL logic
-                    // Note: URL must be like:
-                    // ${sessionHostUrl}/api/v4/projects/${encodeURIComponent(sessionRepoPath)}/${path}
-                    // Note: Header must be 'PRIVATE-TOKEN': sessionAccessToken
-                    throw new Error('GitLab API "request" function not implemented.');
+                /** * Makes an authenticated fetch call to the GitLab API 
+                 * @param {string} endpoint - The API endpoint (e.g., /repository/tree)
+                 * @param {string} [method='GET']
+                 * @param {object} [body=null] - For PUT/POST
+                */
+                async request(endpoint, method = 'GET', body = null) {
+                    // GitLab requires the repo path to be URL-encoded
+                    const encodedRepoPath = encodeURIComponent(sessionRepoPath);
+                    const url = `${sessionHostUrl}/api/v4/projects/${encodedRepoPath}${endpoint}`;
+                    
+                    const options = {
+                        method: method,
+                        headers: {
+                            // GitLab uses PRIVATE-TOKEN header
+                            'PRIVATE-TOKEN': sessionAccessToken
+                        }
+                    };
+
+                    if (body) {
+                        options.body = JSON.stringify(body);
+                        options.headers['Content-Type'] = 'application/json';
+                    }
+
+                    const response = await fetch(url, options);
+
+                    if (!response.ok) {
+                        if (response.status === 401) throw new Error('401 Unauthorized. Your token may be invalid or expired.');
+                        if (response.status === 404) throw new Error('404 Not Found. Check your repository path or Host URL.');
+                        throw new Error(`GitLab API Error: ${response.status}`);
+                    }
+                    return response.status === 204 ? null : response.json();
                 },
+
+                /** Fetches contents and normalizes them to a standard format */
                 async getContents(path) {
-                    throw new Error('GitLab API "getContents" function not implemented.');
+                    try {
+                        // First, try to get the path as a directory tree
+                        const treeData = await this.request(`/repository/tree?path=${path}`);
+                        
+                        // If it returns a non-empty array, it's a directory
+                        if (Array.isArray(treeData) && treeData.length > 0) {
+                            return {
+                                type: 'dir',
+                                items: treeData.map(item => ({
+                                    name: item.name,
+                                    type: item.type === 'tree' ? 'dir' : 'file', // 'tree' means directory
+                                    path: item.path
+                                }))
+                            };
+                        } else {
+                            // If tree is empty OR it fails, it's probably a file.
+                            // GitLab's tree endpoint 404s if the path is a file, so we must try/catch.
+                            // We fall through to the 'catch' block.
+                            throw new Error('Not a directory, trying as file');
+                        }
+                    } catch (e) {
+                        // This block runs if the /tree request fails (e.g., 404)
+                        try {
+                            // GitLab requires file paths to be URL-encoded in this specific endpoint
+                            const encodedFilePath = encodeURIComponent(path);
+                            // We must also specify a branch, so we'll assume 'main' for this PoC
+                            // A real app would need to fetch the default branch.
+                            const fileData = await this.request(`/repository/files/${encodedFilePath}?ref=main`);
+
+                            if (fileData.encoding !== 'base64') throw new Error('Cannot display non-Base64 file');
+                            
+                            return {
+                                type: 'file',
+                                // We use last_commit_id as the 'sha' for updates
+                                sha: fileData.last_commit_id, 
+                                content: decodeBase64(fileData.content)
+                            };
+                        } catch (fileError) {
+                            console.error('GitLab file fetch error:', fileError);
+                            throw new Error('Could not fetch path as directory or file.');
+                        }
+                    }
                 },
+                
+                /** Commits a file change (STUBBED) */
                 async commitFile(path, newContent, sha, commitMessage) {
+                    // --- TODO: Implement GitLab commitFile logic ---
+                    // This is more complex than GitHub. You need to use the Commits API
+                    // or the Files API "update" endpoint.
+                    //
+                    // Using Files API (PUT request):
+                    // const encodedFilePath = encodeURIComponent(path);
+                    // const endpoint = `/repository/files/${encodedFilePath}`;
+                    // const body = {
+                    //    branch: 'main', // <-- Need to know the branch
+                    //    content: encodeBase64(newContent),
+                    //    commit_message: commitMessage
+                    // };
+                    // const data = await this.request(endpoint, 'PUT', body);
+                    // return data.last_commit_id;
+                    
                     throw new Error('GitLab API "commitFile" function not implemented.');
                 }
             }
@@ -591,6 +844,7 @@
                 }
                 fileEditDisplayEl.classList.add('hidden');
                 fileDisplayEl.classList.remove('hidden');
+
             } catch (err) {
                 setStatus(`Error committing file: ${err.message}`);
                 if (err.message.includes('409')) {
@@ -598,6 +852,7 @@
                 }
             }
         };
+        
         // --- 10. START THE APP ---
         window.onload = main;
     </script>
