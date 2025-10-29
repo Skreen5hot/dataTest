@@ -8,19 +8,29 @@
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
         div { margin-bottom: 15px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }
         input[type="password"], input[type="text"] { width: 95%; padding: 10px; font-size: 16px; margin-bottom: 10px; }
-        button { padding: 12px 18px; font-size: 16px; cursor: pointer; background: #0366d6; color: white; border: none; border-radius: 6px; }
+        button { padding: 12px 18px; font-size: 16px; cursor: pointer; background: #0366d6; color: white; border: none; border-radius: 6px; margin-right: 5px; }
         button:hover { background: #0056b3; }
         button.danger { background: #d73a49; }
         button.danger:hover { background: #b02a37; }
         button.secondary { background: #6a737d; }
+        button.success { background: #28a745; }
+        button.success:hover { background: #218838; }
         pre { background: #f6f8fa; padding: 15px; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
         .hidden { display: none; }
-        /* File Explorer Styles */
         #file-explorer { list-style: none; padding: 0; }
         #file-explorer li { font-size: 18px; padding: 8px; border-radius: 5px; cursor: pointer; }
         #file-explorer li:hover { background: #f6f8fa; }
         #file-explorer li a { text-decoration: none; color: #0366d6; }
-        #file-content { max-height: 400px; overflow-y: auto; }
+        /* Text area for editing */
+        #file-editor {
+            width: 95%;
+            height: 400px;
+            font-family: monospace;
+            font-size: 14px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
     </style>
 </head>
 <body>
@@ -37,13 +47,10 @@
         <form id="form-setup">
             <label for="setup-repo">Repository Path (e.g., owner/repo)</label>
             <input type="text" id="setup-repo" placeholder="your-username/your-repo-name" required>
-
             <label for="setup-token">GitHub Personal Access Token (github_pat_...)</label>
             <input type="text" id="setup-token" placeholder="github_pat_..." required>
-            
             <label for="setup-password">Create a Master Password (to encrypt this token)</label>
             <input type="password" id="setup-password" placeholder="Your new master password" required>
-            
             <button type="submit">Encrypt and Save</button>
         </form>
     </div>
@@ -69,28 +76,48 @@
             
             <ul id="file-explorer"></ul>
             
-            <pre id="file-content" class="hidden"></pre>
+            <div id="file-view-wrapper" class="hidden">
+                <div id="file-display">
+                    <button id="btn-edit" class="secondary">Edit File</button>
+                    <pre id="file-content"></pre>
+                </div>
+
+                <div id="file-edit-display" class="hidden">
+                    <textarea id="file-editor"></textarea>
+                    <button id="btn-commit" class="success">Save (Commit)</button>
+                    <button id="btn-cancel-edit" class="secondary">Cancel</button>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        // --- 1. CONFIGURATION ---
+        // --- 1. CONFIGURATION (Unchanged) ---
         const DB_NAME = 'pwa-secure-db';
         const DB_STORE_NAME = 'settings';
         const DB_TOKEN_KEY = 'github_token_data';
         
         // --- 2. GLOBAL STATE ---
-        let db; // Our IndexedDB instance
-        let sessionAccessToken = null; // Our IN-MEMORY token
-        let sessionRepoPath = null; // Our IN-MEMORY repo path
-        let currentPath = ''; // The path we are currently viewing
-        
-        // --- 3. UI HELPERS ---
+        let db; 
+        let sessionAccessToken = null; 
+        let sessionRepoPath = null; 
+        let currentPath = ''; 
+        let sessionFileSha = null; // Store the SHA of the file being viewed
+
+        // --- 3. UI HELPERS (Modified) ---
         const statusEl = document.getElementById('status');
-        // Cache more UI elements
         const fileExplorerEl = document.getElementById('file-explorer');
         const fileContentEl = document.getElementById('file-content');
         const currentPathEl = document.getElementById('current-path');
+        // Cache all new UI elements
+        const fileViewWrapperEl = document.getElementById('file-view-wrapper');
+        const fileDisplayEl = document.getElementById('file-display');
+        const fileEditDisplayEl = document.getElementById('file-edit-display');
+        const fileEditorEl = document.getElementById('file-editor');
+        const btnEditEl = document.getElementById('btn-edit');
+        const btnCommitEl = document.getElementById('btn-commit');
+        const btnCancelEditEl = document.getElementById('btn-cancel-edit');
+        
         const views = {
             setup: document.getElementById('view-setup'),
             unlock: document.getElementById('view-unlock'),
@@ -103,7 +130,6 @@
                 views[viewName].classList.remove('hidden');
             }
         }
-        
         function setStatus(message) {
             statusEl.textContent = message;
         }
@@ -192,15 +218,13 @@
             }
         }
         
-        // --- 6. CORE APP LOGIC & EVENT HANDLERS ---
+        // --- 6. CORE APP LOGIC & EVENT HANDLERS (Modified) ---
         
-        /** Called on page load */
         async function main() {
             try {
                 await initDB();
                 setStatus('Database initialized.');
                 const encryptedData = await dbGet(DB_TOKEN_KEY);
-                
                 if (encryptedData) {
                     setStatus('Encrypted token found.');
                     showView('unlock');
@@ -208,19 +232,16 @@
                     setStatus('Ready for setup.');
                     showView('setup');
                 }
-
             } catch (err) {
                 setStatus('Initialization Error: ' + err.message);
                 console.error(err);
             }
         }
         
-        /** Handle password submit to UNLOCK */
         document.getElementById('form-unlock').onsubmit = async (e) => {
             e.preventDefault();
             const password = document.getElementById('unlock-password').value;
             setStatus('Decrypting token...');
-            
             try {
                 const encryptedData = await dbGet(DB_TOKEN_KEY);
                 const token = await decryptToken(
@@ -230,31 +251,25 @@
                     encryptedData.iv
                 );
                 
-                // Set global state
                 sessionAccessToken = token; 
-                sessionRepoPath = encryptedData.repoPath; // Load the repo path
+                sessionRepoPath = encryptedData.repoPath; // THIS IS THE LINE YOU VERIFIED
                 
                 setStatus('Session unlocked!');
                 showView('loggedin');
                 document.getElementById('unlock-password').value = ''; 
                 
-                // Fetch root repo contents on unlock
                 await fetchAndRenderContents('');
-                
             } catch (err) {
                 setStatus('Unlock failed: Invalid password.');
             }
         };
 
-        /** Handle the initial SETUP form */
         document.getElementById('form-setup').onsubmit = async (e) => {
             e.preventDefault();
-            // Get repo path
             const repoPath = document.getElementById('setup-repo').value;
             const token = document.getElementById('setup-token').value;
             const password = document.getElementById('setup-password').value;
 
-            // Validation
             if (!repoPath || !token || !password) {
                 alert('Please fill out all fields.');
                 return;
@@ -263,36 +278,29 @@
                  alert('Repo path must be in "owner/repo" format.');
                  return;
             }
-            if (!token.startsWith('github_pat_')) {
-                 alert('This does not look like a valid Fine-grained Personal Access Token. It should start with "github_pat_".');
+            // Allow 'ghp_' (Classic) or 'github_pat_' (Fine-grained)
+            if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+                 alert('This does not look like a valid Personal Access Token.');
                  return;
             }
 
             setStatus('Encrypting and saving token...');
             try {
                 const encryptedData = await encryptToken(token, password);
-                
-                // Add repo path to the object we save
-                encryptedData.repoPath = repoPath;
-                
+                encryptedData.repoPath = repoPath; // Add repo path
                 await dbPut(encryptedData);
                 
-                // Set global state
                 sessionAccessToken = token; 
                 sessionRepoPath = repoPath;
                 
                 setStatus('Token encrypted and saved!');
                 showView('loggedin');
-
-                // Fetch root repo contents on setup
                 await fetchAndRenderContents('');
-
             } catch (err) {
                 setStatus('Error saving token: ' + err.message);
             }
         };
 
-        /** Handle "Log Out" button click */
         document.getElementById('btn-logout').onclick = async () => {
             if (confirm('This will log you out and permanently delete your encrypted token. You will need to set it up again. Continue?')) {
                 setStatus('Logging out...');
@@ -300,33 +308,49 @@
                 sessionAccessToken = null;
                 sessionRepoPath = null;
                 currentPath = '';
+                sessionFileSha = null;
                 setStatus('Logged out and token cleared.');
                 showView('setup');
-                fileExplorerEl.innerHTML = ''; // Clear file list
+                fileExplorerEl.innerHTML = ''; 
+                fileViewWrapperEl.classList.add('hidden');
             }
         };
         
         // --- 7. GITHUB API & BROWSER LOGIC ---
 
-        /** Makes an authenticated fetch call to the GitHub API */
-        async function githubFetch(path) {
-            const url = `https://api.github.com/repos/${sessionRepoPath}/contents/${path}`;
-            
-            const response = await fetch(url, {
+        /**
+         * Generic function to make authenticated calls to the GitHub API.
+         * @param {string} path - The API path (e.g., "contents/file.txt").
+         * @param {string} [method='GET'] - The HTTP method.
+         * @param {object} [body=null] - The JSON body for PUT/POST requests.
+         */
+        async function githubAPI(path, method = 'GET', body = null) {
+            const url = `https://api.github.com/repos/${sessionRepoPath}/${path}`;
+            const options = {
+                method: method,
                 headers: {
                     'Authorization': `Bearer ${sessionAccessToken}`,
                     'Accept': 'application/vnd.github.v3+json'
                 }
-            });
+            };
+
+            if (body) {
+                options.body = JSON.stringify(body);
+                options.headers['Content-Type'] = 'application/json';
+            }
+            
+            const response = await fetch(url, options);
 
             if (!response.ok) {
-                if (response.status === 401) {
-                    throw new Error('401 Bad Credentials. Your token may be invalid or expired.');
-                }
-                if (response.status === 404) {
-                    throw new Error('404 Not Found. Check your repository path.');
-                }
+                if (response.status === 401) throw new Error('401 Bad Credentials. Your token may be invalid or expired.');
+                if (response.status === 404) throw new Error('404 Not Found. Check your repository path.');
+                if (response.status === 409) throw new Error('409 Conflict. The file has changed on GitHub. Please refresh.');
                 throw new Error(`API Error: ${response.status}`);
+            }
+
+            // A 204 No Content response (like from a DELETE) won't have a body
+            if (response.status === 204) {
+                return null;
             }
             return response.json();
         }
@@ -335,19 +359,18 @@
         async function fetchAndRenderContents(path) {
             setStatus('Fetching repository contents...');
             fileExplorerEl.innerHTML = '<li>Loading...</li>';
-            fileContentEl.classList.add('hidden'); // Hide file view
+            fileViewWrapperEl.classList.add('hidden'); // Hide file view
             fileExplorerEl.classList.remove('hidden'); // Show list view
             
             try {
-                const data = await githubFetch(path);
-                currentPath = path; // Update global path
-                currentPathEl.textContent = path || '/'; // Update UI
+                // Use the new generic API function
+                const data = await githubAPI(`contents/${path}`); 
+                currentPath = path; 
+                currentPathEl.textContent = path || '/'; 
                 
                 if (Array.isArray(data)) {
-                    // It's a directory
                     renderDirectory(data);
                 } else if (data.type === 'file') {
-                    // It's a file (e.g., if user clicked a file link)
                     renderFile(data);
                 }
                 setStatus('Ready.');
@@ -359,9 +382,7 @@
 
         /** Renders a list of files and directories */
         function renderDirectory(items) {
-            fileExplorerEl.innerHTML = ''; // Clear "Loading..."
-            
-            // Sort to show directories first
+            fileExplorerEl.innerHTML = ''; 
             items.sort((a, b) => {
                 if (a.type === b.type) return a.name.localeCompare(b.name);
                 return a.type === 'dir' ? -1 : 1;
@@ -371,10 +392,9 @@
                 const li = document.createElement('li');
                 const icon = item.type === 'dir' ? '📁' : '📄';
                 li.innerHTML = `<a href="#">${icon} ${item.name}</a>`;
-                
                 li.onclick = (e) => {
                     e.preventDefault();
-                    fetchAndRenderContents(item.path); // Fetch new path
+                    fetchAndRenderContents(item.path); 
                 };
                 fileExplorerEl.appendChild(li);
             }
@@ -383,44 +403,127 @@
         /** Renders the content of a single file */
         function renderFile(fileData) {
             fileExplorerEl.classList.add('hidden'); // Hide list
-            fileContentEl.classList.remove('hidden'); // Show content
+            fileViewWrapperEl.classList.remove('hidden'); // Show content wrapper
+            fileEditDisplayEl.classList.add('hidden'); // Hide edit view
+            fileDisplayEl.classList.remove('hidden'); // Show read view
+
+            // Store the sha for future commits
+            sessionFileSha = fileData.sha;
 
             if (fileData.encoding !== 'base64') {
                 fileContentEl.textContent = 'Error: Cannot display this file type (not Base64).';
+                btnEditEl.classList.add('hidden'); // Hide edit button
                 return;
             }
 
             try {
-                // Decode Base64 content
-                // Use the robust TextDecoder method for UTF-8 safety
-                const binaryString = atob(fileData.content);
-                const len = binaryString.length;
-                const bytes = new Uint8Array(len);
-                for (let i = 0; i < len; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                }
-                const decoder = new TextDecoder('utf-8');
-                const decodedContent = decoder.decode(bytes);
-
+                const decodedContent = decodeBase64(fileData.content);
                 fileContentEl.textContent = decodedContent;
+                btnEditEl.classList.remove('hidden'); // Show edit button
             } catch (e) {
                 fileContentEl.textContent = 'Error decoding file: ' + e.message;
+                btnEditEl.classList.add('hidden');
             }
+        }
+
+        /** Decodes Base64 to a UTF-8 string */
+        function decodeBase64(base64String) {
+            const binaryString = atob(base64String);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            const decoder = new TextDecoder('utf-8');
+            return decoder.decode(bytes);
+        }
+
+        /** Encodes a UTF-8 string to Base64 */
+        function encodeBase64(string) {
+            // Use a robust method for UTF-8 safety
+            const encoder = new TextEncoder();
+            const data = encoder.encode(string);
+            const binaryString = String.fromCharCode.apply(null, data);
+            return btoa(binaryString);
         }
 
         /** Handle "Back" button click */
         document.getElementById('btn-back').onclick = () => {
-            if (currentPath === '') return; // Already at root
-            
+            if (currentPath === '') return; 
             const parts = currentPath.split('/');
-            parts.pop(); // Remove last part
+            parts.pop(); 
             const newPath = parts.join('/');
+            fetchAndRenderContents(newPath); 
+        };
+
+        // --- 8. EDIT/COMMIT EVENT HANDLERS ---
+
+        /** "Edit" button click */
+        btnEditEl.onclick = () => {
+            fileEditorEl.value = fileContentEl.textContent; // Load content into editor
+            fileDisplayEl.classList.add('hidden');
+            fileEditDisplayEl.classList.remove('hidden');
+        };
+
+        /** "Cancel Edit" button click */
+        btnCancelEditEl.onclick = () => {
+            fileEditDisplayEl.classList.add('hidden');
+            fileDisplayEl.classList.remove('hidden');
+        };
+        
+        /** "Save (Commit)" button click */
+        btnCommitEl.onclick = async () => {
+            const newContent = fileEditorEl.value;
+            const commitMessage = prompt('Enter a commit message:', 'Updated file from PWA');
+
+            if (!commitMessage) {
+                setStatus('Commit cancelled.');
+                return; // User cancelled prompt
+            }
+
+            if (sessionFileSha === null) {
+                alert('Error: File SHA is missing. Cannot commit.');
+                return;
+            }
+
+            setStatus('Committing file to GitHub...');
             
-            fetchAndRenderContents(newPath); // Fetch parent
+            try {
+                // 1. Encode the new content to Base64
+                const newContentBase64 = encodeBase64(newContent);
+                
+                // 2. Prepare the request body
+                const body = {
+                    message: commitMessage,
+                    content: newContentBase64,
+                    sha: sessionFileSha // Provide the last known SHA
+                };
+
+                // 3. Make the PUT request
+                const data = await githubAPI(`contents/${currentPath}`, 'PUT', body);
+
+                // 4. SUCCESS! Update the UI and stored SHA
+                setStatus('File committed successfully!');
+                
+                // 5. Update the SHA! This is critical.
+                sessionFileSha = data.content.sha;
+
+                // 6. Update the read-only view and switch back
+                fileContentEl.textContent = newContent;
+                fileEditDisplayEl.classList.add('hidden');
+                fileDisplayEl.classList.remove('hidden');
+
+            } catch (err) {
+                setStatus(`Error committing file: ${err.message}`);
+                // If it's a 409 conflict, the user needs to refresh
+                if (err.message.includes('409')) {
+                    alert('Error: The file has been changed on GitHub since you loaded it. Please go back, refresh the file, and try again.');
+                }
+            }
         };
 
 
-        // --- 8. START THE APP ---
+        // --- 9. START THE APP ---
         window.onload = main;
         
     </script>
