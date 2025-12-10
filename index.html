@@ -6,6 +6,7 @@
     <title>Secure PWA (Multi-Git) PoC</title>
 
     <link href="prism.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <style>
         /* --- 1. Global & Reset --- */
@@ -257,7 +258,10 @@
         <header id="app-header">
             <h3><span id="service-display"></span> Repo</h3>
             <span id="status">Initializing...</span>
-            <button id="btn-logout" class="danger">Log Out</button>
+            <div>
+                <button id="btn-download-zip" class="secondary">Download Repo as ZIP</button>
+                <button id="btn-logout" class="danger">Log Out</button>
+            </div>
         </header>
 
         <main id="app-main">
@@ -560,18 +564,85 @@
                 await dbDelete(DB_TOKEN_KEY);
                 sessionAccessToken = null;
                 sessionRepoPath = null;
-                sessionService = null; 
+                sessionService = null;
                 sessionHostUrl = null;
-                sessionDefaultBranch = 'main'; 
+                sessionDefaultBranch = 'main';
                 currentPath = '';
                 sessionFileSha = null;
                 setStatus('Logged out and token cleared.');
-                showView('setup'); 
-                fileExplorerEl.innerHTML = ''; 
+                showView('setup');
+                fileExplorerEl.innerHTML = '';
                 fileViewWrapperEl.classList.add('hidden');
             }
         };
-        
+
+        document.getElementById('btn-download-zip').onclick = async () => {
+            if (!sessionAccessToken || !sessionRepoPath) {
+                alert('Not logged in or session expired.');
+                return;
+            }
+
+            const originalStatus = statusEl.textContent;
+            setStatus('Preparing to download repository...');
+
+            try {
+                const zip = new JSZip();
+                const repoName = sessionRepoPath.split('/').pop();
+
+                // Recursive function to fetch and add files to ZIP
+                async function processDirectory(path, zipFolder) {
+                    setStatus(`Scanning: ${path || '/'}`);
+                    const data = await api[sessionService].getContents(path);
+
+                    if (data.type === 'dir') {
+                        for (const item of data.items) {
+                            if (item.type === 'dir') {
+                                const newFolder = zipFolder.folder(item.name);
+                                await processDirectory(item.path, newFolder);
+                            } else {
+                                // Fetch file content
+                                try {
+                                    setStatus(`Adding: ${item.path}`);
+                                    const fileData = await api[sessionService].getContents(item.path);
+                                    zipFolder.file(item.name, fileData.content);
+                                } catch (err) {
+                                    console.warn(`Skipping file ${item.path}: ${err.message}`);
+                                    setStatus(`Skipping: ${item.path} (${err.message})`);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Start from root
+                await processDirectory('', zip.folder(repoName));
+
+                setStatus('Generating ZIP file...');
+                const blob = await zip.generateAsync({
+                    type: 'blob',
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: 9 }
+                });
+
+                // Trigger download
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${repoName}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                setStatus('Repository downloaded successfully!');
+                setTimeout(() => setStatus(originalStatus), 3000);
+
+            } catch (err) {
+                setStatus(`Error downloading repository: ${err.message}`);
+                console.error('Download error:', err);
+            }
+        };
+
         // --- 7. API ABSTRACTION LAYER (MODIFIED) ---
         const api = {
             /**
@@ -602,7 +673,8 @@
                     return response.status === 204 ? null : response.json();
                 },
                 async getContents(path) {
-                    const data = await this.request(`contents/${path}`);
+                    const endpoint = path ? `contents/${path}` : 'contents';
+                    const data = await this.request(endpoint);
                     if (Array.isArray(data)) {
                         return {
                             type: 'dir',
@@ -613,12 +685,24 @@
                             }))
                         };
                     } else if (data.type === 'file') {
-                        if (data.encoding !== 'base64') throw new Error('Cannot display non-Base64 file');
-                        return {
-                            type: 'file',
-                            sha: data.sha, 
-                            content: decodeBase64(data.content)
-                        };
+                        if (data.encoding === 'base64') {
+                            return {
+                                type: 'file',
+                                sha: data.sha,
+                                content: decodeBase64(data.content)
+                            };
+                        } else if (data.download_url) {
+                            // For large files, GitHub provides a download_url
+                            const response = await fetch(data.download_url);
+                            const content = await response.text();
+                            return {
+                                type: 'file',
+                                sha: data.sha,
+                                content: content
+                            };
+                        } else {
+                            throw new Error(`Cannot display file with encoding: ${data.encoding}`);
+                        }
                     }
                 },
                 async commitFile(path, newContent, sha, commitMessage) {
